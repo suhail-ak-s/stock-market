@@ -12,7 +12,8 @@ import {
   ReadResourceRequestSchema,
   GetPromptRequestSchema,
   ListPromptsRequestSchema,
-  ListResourceTemplatesRequestSchema
+  ListResourceTemplatesRequestSchema,
+  InitializeRequestSchema
 } from "@modelcontextprotocol/sdk/types.js";
 import * as fs from 'fs';
 import * as path from 'path';
@@ -128,6 +129,43 @@ const server = new Server(
     }
   }
 );
+
+// Add the initialize request handler
+server.setRequestHandler(InitializeRequestSchema, async (request) => {
+  console.error(`Handling initialize request: ${JSON.stringify(request.params)}`);
+  
+  try {
+    // Basic validation of client capabilities if needed
+    const { clientInfo } = request.params;
+    console.error(`Client connected: ${clientInfo?.name || 'unknown'} v${clientInfo?.version || 'unknown'}`);
+    
+    // Return server information and capabilities
+    return {
+      serverInfo: {
+        name: "financial-mcp-server",
+        version: "1.0.0"
+      },
+      capabilities: {
+        resources: {
+          read: true,
+          list: true,
+          templates: true
+        },
+        tools: {
+          list: true,
+          call: true
+        },
+        prompts: {
+          list: true,
+          get: true
+        }
+      }
+    };
+  } catch (error) {
+    console.error('Error handling initialize request:', error);
+    throw error;
+  }
+});
 
 async function fetchAvailableTickers(limit = 20): Promise<string[]> {
   try {
@@ -2116,28 +2154,69 @@ This will return detailed financial statement data.`
  */
 async function main() {
   try {
+    console.error('Starting Financial MCP Server...');
+    
     financialConfig = parseArgs();
-    logger.log('Financial API configuration: ' + JSON.stringify(financialConfig));
+    console.error('Financial API configuration: ' + JSON.stringify({
+      ...financialConfig,
+      apiKey: financialConfig.apiKey ? '*****' : 'missing'
+    }));
 
+    if (!financialConfig.apiKey) {
+      console.error('ERROR: Financial API key is required. Use --api-key argument.');
+      fs.appendFileSync(logFile, `[ERROR] ${new Date().toISOString()} - API key is missing\n`);
+      process.exit(1);
+    }
+
+    console.error('Creating API client...');
     apiClient = initApiClient(financialConfig);
-    logger.log('Financial API client initialized');
+    console.error('Financial API client initialized');
 
     try {
       // Test connection to API
-      await apiClient.get('/company/facts/tickers/');
-      logger.log('Financial API connection test successful');
+      console.error('Testing API connection...');
+      const testResponse = await apiClient.get('/company/facts/tickers/');
+      console.error('Financial API connection test successful');
+      console.error(`Received tickers: ${JSON.stringify(testResponse.data).substring(0, 100)}...`);
     } catch (error) {
-      logger.error('Financial API connection test failed:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      console.error('Financial API connection test failed:', errorMessage);
+      fs.appendFileSync(logFile, `[ERROR] ${new Date().toISOString()} - API connection test failed: ${errorMessage}\n`);
+      // Continue even if test fails - the API might be temporarily unavailable
     }
 
-    logger.log('Connecting to stdio transport...');
+    console.error('Connecting to stdio transport...');
     const transport = new StdioServerTransport();
+    
+    // Set up process error handlers
+    process.on('uncaughtException', (err) => {
+      console.error('Uncaught exception:', err);
+      fs.appendFileSync(logFile, `[ERROR] ${new Date().toISOString()} - Uncaught exception: ${err.stack || err}\n`);
+    });
+    
+    process.on('unhandledRejection', (reason, promise) => {
+      console.error('Unhandled rejection:', reason);
+      fs.appendFileSync(logFile, `[ERROR] ${new Date().toISOString()} - Unhandled rejection: ${reason}\n`);
+    });
+    
+    console.error('Connecting server to transport...');
     await server.connect(transport);
 
-    logger.log('MCP server connected and ready');
+    console.error('MCP server connected and ready');
+    
+    // Keep the process alive
+    setInterval(() => {
+      console.error('Server heartbeat - still alive');
+    }, 30000);
 
   } catch (error) {
-    logger.error('Error running MCP server:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    console.error('Error running MCP server:', errorMessage);
+    fs.appendFileSync(logFile, `[ERROR] ${new Date().toISOString()} - Error running MCP server: ${errorMessage}\n`);
+    if (error instanceof Error && error.stack) {
+      fs.appendFileSync(logFile, `${error.stack}\n`);
+      console.error(error.stack);
+    }
     process.exit(1);
   }
 }
