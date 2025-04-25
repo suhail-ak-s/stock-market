@@ -1,0 +1,48 @@
+{
+  "name": "financial-mcp-server",
+  "version": "1.0.0",
+  "description": "Financial Datasets MCP Server for Stock Market API",
+  "main": "dist/index.js",
+  "type": "module",
+  "bin": {
+    "financial-mcp-server": "bin/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "ts-node --esm src/index.ts",
+    "postinstall": "npm run build",
+    "prepare": "chmod +x bin/cli.js && npm run build",
+    "install-global": "node install.js"
+  },
+  "keywords": [
+    "mcp",
+    "financial",
+    "stock",
+    "api"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.10.1",
+    "axios": "^1.6.2",
+    "typescript": "^5.0.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.2.3",
+    "ts-node": "^10.9.1"
+  },
+  "files": [
+    "bin/",
+    "dist/",
+    "README.md",
+    "install.js"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/suhail-ak-s/stock-market.git"
+  }
+}
