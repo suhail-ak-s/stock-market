@@ -5,25 +5,11 @@ import { fileURLToPath } from 'url';
 import { spawn } from 'child_process';
 import fs from 'fs';
 import readline from 'readline';
+import os from 'os';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const packageRoot = path.resolve(__dirname, '..');
-
-// Set up logging
-const logDir = path.join(process.env.HOME || process.env.USERPROFILE, '.financial-mcp');
-if (!fs.existsSync(logDir)) {
-  fs.mkdirSync(logDir, { recursive: true });
-}
-const cliLogFile = path.join(logDir, 'cli.log');
-
-function log(message) {
-  const timestamp = new Date().toISOString();
-  const logMessage = `[${timestamp}] ${message}\n`;
-  fs.appendFileSync(cliLogFile, logMessage);
-}
-
-log('CLI starting');
 
 // Check for stored API key
 let storedApiKey = '';
@@ -34,10 +20,8 @@ try {
   if (fs.existsSync(configFile)) {
     const config = JSON.parse(fs.readFileSync(configFile, 'utf8'));
     storedApiKey = config.apiKey || '';
-    log(`Found stored API key: ${storedApiKey ? 'yes' : 'no'}`);
   }
 } catch (err) {
-  log(`Warning: Could not read stored API key: ${err.message}`);
   console.warn('Warning: Could not read stored API key.');
 }
 
@@ -45,19 +29,16 @@ try {
 const args = process.argv.slice(2);
 let apiKey = '';
 let baseUrl = 'https://api.financialdatasets.ai';
-let verbose = false;
+let debug = false;
 
 for (let i = 0; i < args.length; i++) {
   const arg = args[i];
   if ((arg === '--api-key' || arg === '-k') && i + 1 < args.length) {
     apiKey = args[++i];
-    log('API key provided via command line');
   } else if ((arg === '--base-url' || arg === '-u') && i + 1 < args.length) {
     baseUrl = args[++i];
-    log(`Base URL set to: ${baseUrl}`);
-  } else if (arg === '--verbose' || arg === '-v') {
-    verbose = true;
-    log('Verbose mode enabled');
+  } else if (arg === '--debug' || arg === '-d') {
+    debug = true;
   } else if (arg === '--help' || arg === '-h') {
     console.log(`
 Financial Datasets MCP Server - Stock Market API
@@ -67,7 +48,7 @@ Usage: npx stock-market-mcp-server [options]
 Options:
   --api-key, -k <key>     Your Financial Datasets API key (required if not stored)
   --base-url, -u <url>    API base URL (default: https://api.financialdatasets.ai)
-  --verbose, -v           Enable verbose logging
+  --debug, -d             Enable debug output
   --help, -h              Show this help message
 
 Example:
@@ -79,7 +60,6 @@ Example:
 
 // Use stored API key if no key is provided
 if (!apiKey && storedApiKey) {
-  log('Using stored API key');
   console.log('Using stored API key.');
   apiKey = storedApiKey;
 }
@@ -97,7 +77,6 @@ if (!apiKey) {
     
     if (!apiKey) {
       console.error('Error: API key is required');
-      log('Error: No API key provided');
       process.exit(1);
     }
     
@@ -117,57 +96,58 @@ if (!apiKey) {
           }
           
           fs.writeFileSync(configFile, JSON.stringify({ apiKey }, null, 2));
-          log('API key saved');
           console.log('API key saved.');
         } catch (err) {
-          log(`Warning: Could not save API key to config file: ${err.message}`);
           console.warn('Warning: Could not save API key to config file.', err.message);
         }
       }
       
-      startServer(apiKey, baseUrl, verbose);
+      startServer(apiKey, baseUrl, debug);
     });
   });
 } else {
-  startServer(apiKey, baseUrl, verbose);
+  startServer(apiKey, baseUrl, debug);
 }
 
-function startServer(apiKey, baseUrl, verbose) {
-  log(`Starting Financial Datasets MCP Server with baseUrl: ${baseUrl}`);
+function startServer(apiKey, baseUrl, debug) {
   console.log('Starting Financial Datasets MCP Server...');
   
-  const serverArgs = [
+  // Show log file location
+  const logFile = path.join(os.tmpdir(), 'financial-mcp.log');
+  console.log(`Log file: ${logFile}`);
+  
+  // Create a readline interface for user input
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout
+  });
+  
+  console.log('\nServer is running as a Model Context Protocol (MCP) provider.');
+  console.log('This server provides financial data to AI models that support MCP.');
+  console.log('It doesn\'t have a web interface - it\'s designed to be used by AI systems.');
+  console.log('\nCommands:');
+  console.log('  help    - Show this help message');
+  console.log('  log     - View the last 10 lines of the log file');
+  console.log('  status  - Check if the server is running');
+  console.log('  exit    - Stop the server and exit');
+  console.log('\nType a command or press Ctrl+C to exit\n');
+  
+  // Start the server process
+  const serverProcess = spawn('node', [
     path.join(packageRoot, 'dist', 'index.js'),
     '--api-key', apiKey,
     '--base-url', baseUrl
-  ];
-  
-  if (verbose) {
-    log('Adding verbose flag to server args');
-    serverArgs.push('--verbose');
-  }
-  
-  // Start the server process
-  const serverProcess = spawn('node', serverArgs, {
-    stdio: 'inherit',
-    env: {
-      ...process.env,
-      NODE_ENV: 'production',
-      FORCE_COLOR: '1'
-    }
+  ], {
+    stdio: debug ? 'inherit' : 'ignore'
   });
   
-  log('Server process started');
-  
   serverProcess.on('error', (err) => {
-    log(`Failed to start server: ${err.message}`);
     console.error('Failed to start server:', err);
     process.exit(1);
   });
   
   serverProcess.on('exit', (code) => {
     if (code !== 0) {
-      log(`Server exited with code ${code}`);
       console.error(`Server exited with code ${code}`);
       process.exit(code);
     }
@@ -175,14 +155,67 @@ function startServer(apiKey, baseUrl, verbose) {
   
   // Handle process termination
   process.on('SIGINT', () => {
-    log('Shutting down server due to SIGINT');
-    console.log('Shutting down server...');
+    console.log('\nShutting down server...');
     serverProcess.kill('SIGINT');
+    rl.close();
+    process.exit(0);
   });
   
-  process.on('SIGTERM', () => {
-    log('Shutting down server due to SIGTERM');
-    console.log('Shutting down server...');
-    serverProcess.kill('SIGTERM');
+  // Handle user commands
+  rl.on('line', (input) => {
+    const command = input.trim().toLowerCase();
+    
+    switch (command) {
+      case 'help':
+        console.log('\nCommands:');
+        console.log('  help    - Show this help message');
+        console.log('  log     - View the last 10 lines of the log file');
+        console.log('  status  - Check if the server is running');
+        console.log('  exit    - Stop the server and exit');
+        break;
+        
+      case 'log':
+        try {
+          const logContent = fs.existsSync(logFile) 
+            ? fs.readFileSync(logFile, 'utf8').split('\n').slice(-10).join('\n') 
+            : 'Log file not found';
+          console.log('\nLast 10 log entries:\n' + logContent);
+        } catch (err) {
+          console.error('Error reading log file:', err.message);
+        }
+        break;
+        
+      case 'status':
+        if (serverProcess.killed) {
+          console.log('Server is not running.');
+        } else {
+          console.log('Server is running.');
+          try {
+            const stats = fs.statSync(logFile);
+            const lastModified = new Date(stats.mtime);
+            console.log(`Last log activity: ${lastModified.toLocaleString()}`);
+          } catch (err) {
+            console.log('Cannot read log file.');
+          }
+        }
+        break;
+        
+      case 'exit':
+        console.log('Shutting down server...');
+        serverProcess.kill('SIGINT');
+        rl.close();
+        process.exit(0);
+        break;
+        
+      default:
+        if (command) {
+          console.log(`Unknown command: ${command}. Type 'help' for a list of commands.`);
+        }
+    }
+    
+    rl.prompt();
   });
+  
+  rl.setPrompt('> ');
+  rl.prompt();
 } 
