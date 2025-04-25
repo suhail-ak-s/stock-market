@@ -7,9 +7,31 @@ import fs from 'fs';
 import readline from 'readline';
 import os from 'os';
 
+// Debug info - write to a debug file
+const debugFile = path.join(os.tmpdir(), 'stock-market-debug.log');
+const writeDebug = (message) => {
+  try {
+    fs.appendFileSync(debugFile, `${new Date().toISOString()} - ${message}\n`);
+  } catch (err) {
+    // Silently fail if we can't write to the debug file
+  }
+};
+
+writeDebug('CLI script started');
+writeDebug(`Node version: ${process.version}`);
+writeDebug(`Platform: ${process.platform}`);
+writeDebug(`CLI Arguments: ${process.argv.join(' ')}`);
+
+// Print debug file location
+console.log(`Debug log: ${debugFile}`);
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const packageRoot = path.resolve(__dirname, '..');
+
+writeDebug(`__filename: ${__filename}`);
+writeDebug(`__dirname: ${__dirname}`);
+writeDebug(`packageRoot: ${packageRoot}`);
 
 // Check for stored API key
 let storedApiKey = '';
@@ -111,10 +133,12 @@ if (!apiKey) {
 
 function startServer(apiKey, baseUrl, debug) {
   console.log('Starting Financial Datasets MCP Server...');
+  writeDebug(`Starting server with apiKey: ${apiKey ? '[REDACTED]' : 'none'}, baseUrl: ${baseUrl}, debug: ${debug}`);
   
   // Show log file location
   const logFile = path.join(os.tmpdir(), 'financial-mcp.log');
   console.log(`Log file: ${logFile}`);
+  writeDebug(`Log file: ${logFile}`);
   
   // Create a readline interface for user input
   const rl = readline.createInterface({
@@ -132,90 +156,114 @@ function startServer(apiKey, baseUrl, debug) {
   console.log('  exit    - Stop the server and exit');
   console.log('\nType a command or press Ctrl+C to exit\n');
   
-  // Start the server process
-  const serverProcess = spawn('node', [
-    path.join(packageRoot, 'dist', 'index.js'),
-    '--api-key', apiKey,
-    '--base-url', baseUrl
-  ], {
-    stdio: debug ? 'inherit' : 'ignore'
-  });
-  
-  serverProcess.on('error', (err) => {
-    console.error('Failed to start server:', err);
+  // Check if dist/index.js exists
+  const indexPath = path.join(packageRoot, 'dist', 'index.js');
+  if (!fs.existsSync(indexPath)) {
+    console.error(`Error: Server file not found at ${indexPath}`);
+    writeDebug(`Error: Server file not found at ${indexPath}`);
     process.exit(1);
-  });
+  }
   
-  serverProcess.on('exit', (code) => {
-    if (code !== 0) {
-      console.error(`Server exited with code ${code}`);
-      process.exit(code);
-    }
-  });
+  writeDebug(`Starting server process with: node ${indexPath} --api-key [REDACTED] --base-url ${baseUrl}`);
   
-  // Handle process termination
-  process.on('SIGINT', () => {
-    console.log('\nShutting down server...');
-    serverProcess.kill('SIGINT');
-    rl.close();
-    process.exit(0);
-  });
-  
-  // Handle user commands
-  rl.on('line', (input) => {
-    const command = input.trim().toLowerCase();
+  try {
+    // Start the server process
+    const serverProcess = spawn('node', [
+      indexPath,
+      '--api-key', apiKey,
+      '--base-url', baseUrl
+    ], {
+      stdio: debug ? 'inherit' : 'ignore'
+    });
     
-    switch (command) {
-      case 'help':
-        console.log('\nCommands:');
-        console.log('  help    - Show this help message');
-        console.log('  log     - View the last 10 lines of the log file');
-        console.log('  status  - Check if the server is running');
-        console.log('  exit    - Stop the server and exit');
-        break;
-        
-      case 'log':
-        try {
-          const logContent = fs.existsSync(logFile) 
-            ? fs.readFileSync(logFile, 'utf8').split('\n').slice(-10).join('\n') 
-            : 'Log file not found';
-          console.log('\nLast 10 log entries:\n' + logContent);
-        } catch (err) {
-          console.error('Error reading log file:', err.message);
-        }
-        break;
-        
-      case 'status':
-        if (serverProcess.killed) {
-          console.log('Server is not running.');
-        } else {
-          console.log('Server is running.');
+    serverProcess.on('error', (err) => {
+      console.error('Failed to start server:', err);
+      writeDebug(`Server process error: ${err.message}`);
+      process.exit(1);
+    });
+    
+    serverProcess.on('exit', (code) => {
+      writeDebug(`Server process exited with code ${code}`);
+      if (code !== 0) {
+        console.error(`Server exited with code ${code}`);
+        process.exit(code);
+      }
+    });
+    
+    // Handle process termination
+    process.on('SIGINT', () => {
+      console.log('\nShutting down server...');
+      serverProcess.kill('SIGINT');
+      rl.close();
+      process.exit(0);
+    });
+    
+    // Handle user commands
+    rl.on('line', (input) => {
+      const command = input.trim().toLowerCase();
+      writeDebug(`Command received: ${command}`);
+      
+      switch (command) {
+        case 'help':
+          console.log('\nCommands:');
+          console.log('  help    - Show this help message');
+          console.log('  log     - View the last 10 lines of the log file');
+          console.log('  status  - Check if the server is running');
+          console.log('  exit    - Stop the server and exit');
+          break;
+          
+        case 'log':
           try {
-            const stats = fs.statSync(logFile);
-            const lastModified = new Date(stats.mtime);
-            console.log(`Last log activity: ${lastModified.toLocaleString()}`);
+            const logContent = fs.existsSync(logFile) 
+              ? fs.readFileSync(logFile, 'utf8').split('\n').slice(-10).join('\n') 
+              : 'Log file not found';
+            console.log('\nLast 10 log entries:\n' + logContent);
           } catch (err) {
-            console.log('Cannot read log file.');
+            console.error('Error reading log file:', err.message);
+            writeDebug(`Error reading log file: ${err.message}`);
           }
-        }
-        break;
-        
-      case 'exit':
-        console.log('Shutting down server...');
-        serverProcess.kill('SIGINT');
-        rl.close();
-        process.exit(0);
-        break;
-        
-      default:
-        if (command) {
-          console.log(`Unknown command: ${command}. Type 'help' for a list of commands.`);
-        }
-    }
+          break;
+          
+        case 'status':
+          if (serverProcess.killed) {
+            console.log('Server is not running.');
+          } else {
+            console.log('Server is running.');
+            try {
+              const stats = fs.statSync(logFile);
+              const lastModified = new Date(stats.mtime);
+              console.log(`Last log activity: ${lastModified.toLocaleString()}`);
+            } catch (err) {
+              console.log('Cannot read log file.');
+              writeDebug(`Error checking log file: ${err.message}`);
+            }
+          }
+          break;
+          
+        case 'exit':
+          console.log('Shutting down server...');
+          serverProcess.kill('SIGINT');
+          rl.close();
+          process.exit(0);
+          break;
+          
+        default:
+          if (command) {
+            console.log(`Unknown command: ${command}. Type 'help' for a list of commands.`);
+          }
+      }
+      
+      rl.prompt();
+    });
     
+    rl.setPrompt('> ');
     rl.prompt();
-  });
-  
-  rl.setPrompt('> ');
-  rl.prompt();
+  } catch (err) {
+    console.error('Error starting server:', err.message);
+    writeDebug(`Error in startServer: ${err.message}`);
+    if (err.stack) {
+      writeDebug(`Error stack: ${err.stack}`);
+    }
+    process.exit(1);
+  }
 } 
