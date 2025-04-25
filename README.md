@@ -19,14 +19,14 @@ A Model Context Protocol (MCP) server implementation for the Financial Datasets 
 The easiest way to use this package is through npx:
 
 ```bash
-npx financial-mcp-server --api-key YOUR_API_KEY
+npx stock-market-mcp-server --api-key YOUR_API_KEY
 ```
 
 If you don't provide an API key via the command line, you'll be prompted to enter one.
 
 Additional options:
 ```bash
-npx financial-mcp-server --help
+npx stock-market-mcp-server --help
 ```
 
 ### Global Installation
@@ -34,7 +34,7 @@ npx financial-mcp-server --help
 You can install the package globally using:
 
 ```bash
-npm install -g financial-mcp-server
+npm install -g stock-market-mcp-server
 ```
 
 Or install directly from the GitHub repository:
@@ -46,7 +46,7 @@ npm install -g git+https://github.com/suhail-ak-s/stock-market.git
 Then run:
 
 ```bash
-financial-mcp-server --api-key YOUR_API_KEY
+stock-market-mcp-server --api-key YOUR_API_KEY
 ```
 
 The API key will be stored securely for future use if you choose to save it.
@@ -158,4 +158,6 @@ The server logs all activity to a temporary file at:
 
 ## License
 
-MIT 
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+Copyright (c) 2025 Suhail AK. All rights reserved. 

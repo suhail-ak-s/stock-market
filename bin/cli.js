@@ -39,7 +39,7 @@ for (let i = 0; i < args.length; i++) {
     console.log(`
 Financial Datasets MCP Server - Stock Market API
 
-Usage: npx financial-mcp-server [options]
+Usage: npx stock-market-mcp-server [options]
 
 Options:
   --api-key, -k <key>     Your Financial Datasets API key (required if not stored)
@@ -47,7 +47,7 @@ Options:
   --help, -h              Show this help message
 
 Example:
-  npx financial-mcp-server --api-key YOUR_API_KEY
+  npx stock-market-mcp-server --api-key YOUR_API_KEY
 `);
     process.exit(0);
   }
