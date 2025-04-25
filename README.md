@@ -29,6 +29,18 @@ Additional options:
 npx stock-market-mcp-server --help
 ```
 
+### Install from GitHub Packages
+
+You can install the package from GitHub Packages with:
+
+```bash
+# Add this to your .npmrc file
+@suhail-ak-s:registry=https://npm.pkg.github.com
+
+# Then install the package
+npm install @suhail-ak-s/stock-market-mcp-server
+```
+
 ### Global Installation
 
 You can install the package globally using:

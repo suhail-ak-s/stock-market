@@ -1,5 +1,5 @@
 {
-  "name": "stock-market-mcp-server",
+  "name": "@suhail-ak-s/stock-market-mcp-server",
   "version": "1.0.0",
   "description": "Financial Datasets MCP Server for Stock Market API",
   "main": "dist/index.js",
@@ -14,6 +14,10 @@
     "postinstall": "npm run build",
     "prepare": "chmod +x bin/cli.js && npm run build",
     "install-global": "node install.js"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com",
+    "@suhail-ak-s:registry": "https://npm.pkg.github.com"
   },
   "keywords": [
     "mcp",
