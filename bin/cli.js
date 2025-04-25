@@ -21,6 +21,8 @@ writeDebug('CLI script started');
 writeDebug(`Node version: ${process.version}`);
 writeDebug(`Platform: ${process.platform}`);
 writeDebug(`CLI Arguments: ${process.argv.join(' ')}`);
+writeDebug(`Is stdin a TTY: ${process.stdin.isTTY}`);
+writeDebug(`Is stdout a TTY: ${process.stdout.isTTY}`);
 
 // Print debug file location
 console.log(`Debug log: ${debugFile}`);
@@ -45,6 +47,7 @@ try {
   }
 } catch (err) {
   console.warn('Warning: Could not read stored API key.');
+  writeDebug(`Error reading config: ${err.message}`);
 }
 
 // Parse command line arguments
@@ -52,6 +55,15 @@ const args = process.argv.slice(2);
 let apiKey = '';
 let baseUrl = 'https://api.financialdatasets.ai';
 let debug = false;
+let nonInteractive = false;
+
+// Check if we're running under npx
+const isNpxEnvironment = !process.stdin.isTTY || process.env.npm_execpath?.includes('npx');
+writeDebug(`Detected npx environment: ${isNpxEnvironment}`);
+if (isNpxEnvironment) {
+  nonInteractive = true;
+  writeDebug('Setting non-interactive mode due to npx environment');
+}
 
 for (let i = 0; i < args.length; i++) {
   const arg = args[i];
@@ -61,6 +73,8 @@ for (let i = 0; i < args.length; i++) {
     baseUrl = args[++i];
   } else if (arg === '--debug' || arg === '-d') {
     debug = true;
+  } else if (arg === '--non-interactive' || arg === '-n') {
+    nonInteractive = true;
   } else if (arg === '--help' || arg === '-h') {
     console.log(`
 Financial Datasets MCP Server - Stock Market API
@@ -68,10 +82,11 @@ Financial Datasets MCP Server - Stock Market API
 Usage: npx stock-market-mcp-server [options]
 
 Options:
-  --api-key, -k <key>     Your Financial Datasets API key (required if not stored)
-  --base-url, -u <url>    API base URL (default: https://api.financialdatasets.ai)
-  --debug, -d             Enable debug output
-  --help, -h              Show this help message
+  --api-key, -k <key>         Your Financial Datasets API key (required if not stored)
+  --base-url, -u <url>        API base URL (default: https://api.financialdatasets.ai)
+  --debug, -d                 Enable debug output
+  --non-interactive, -n       Run in non-interactive mode (no prompt)
+  --help, -h                  Show this help message
 
 Example:
   npx stock-market-mcp-server --api-key YOUR_API_KEY
@@ -88,6 +103,12 @@ if (!apiKey && storedApiKey) {
 
 // Check for API key
 if (!apiKey) {
+  if (nonInteractive) {
+    console.error('Error: API key is required in non-interactive mode. Use --api-key argument.');
+    writeDebug('Exiting: no API key provided in non-interactive mode');
+    process.exit(1);
+  }
+
   const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout
@@ -124,37 +145,21 @@ if (!apiKey) {
         }
       }
       
-      startServer(apiKey, baseUrl, debug);
+      startServer(apiKey, baseUrl, debug, nonInteractive);
     });
   });
 } else {
-  startServer(apiKey, baseUrl, debug);
+  startServer(apiKey, baseUrl, debug, nonInteractive);
 }
 
-function startServer(apiKey, baseUrl, debug) {
+function startServer(apiKey, baseUrl, debug, nonInteractive) {
   console.log('Starting Financial Datasets MCP Server...');
-  writeDebug(`Starting server with apiKey: ${apiKey ? '[REDACTED]' : 'none'}, baseUrl: ${baseUrl}, debug: ${debug}`);
+  writeDebug(`Starting server with apiKey: ${apiKey ? '[REDACTED]' : 'none'}, baseUrl: ${baseUrl}, debug: ${debug}, nonInteractive: ${nonInteractive}`);
   
   // Show log file location
   const logFile = path.join(os.tmpdir(), 'financial-mcp.log');
   console.log(`Log file: ${logFile}`);
   writeDebug(`Log file: ${logFile}`);
-  
-  // Create a readline interface for user input
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout
-  });
-  
-  console.log('\nServer is running as a Model Context Protocol (MCP) provider.');
-  console.log('This server provides financial data to AI models that support MCP.');
-  console.log('It doesn\'t have a web interface - it\'s designed to be used by AI systems.');
-  console.log('\nCommands:');
-  console.log('  help    - Show this help message');
-  console.log('  log     - View the last 10 lines of the log file');
-  console.log('  status  - Check if the server is running');
-  console.log('  exit    - Stop the server and exit');
-  console.log('\nType a command or press Ctrl+C to exit\n');
   
   // Check if dist/index.js exists
   const indexPath = path.join(packageRoot, 'dist', 'index.js');
@@ -194,9 +199,35 @@ function startServer(apiKey, baseUrl, debug) {
     process.on('SIGINT', () => {
       console.log('\nShutting down server...');
       serverProcess.kill('SIGINT');
-      rl.close();
       process.exit(0);
     });
+    
+    // In non-interactive mode, just wait for the server to exit
+    if (nonInteractive) {
+      console.log('\nServer is running as a Model Context Protocol (MCP) provider.');
+      console.log('This server provides financial data to AI models that support MCP.');
+      console.log('It doesn\'t have a web interface - it\'s designed to be used by AI systems.');
+      console.log('\nPress Ctrl+C to stop the server.');
+      console.log(`Log file is available at: ${logFile}`);
+      console.log(`Debug log is available at: ${debugFile}`);
+      return;
+    }
+    
+    // Create a readline interface for user input
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout
+    });
+    
+    console.log('\nServer is running as a Model Context Protocol (MCP) provider.');
+    console.log('This server provides financial data to AI models that support MCP.');
+    console.log('It doesn\'t have a web interface - it\'s designed to be used by AI systems.');
+    console.log('\nCommands:');
+    console.log('  help    - Show this help message');
+    console.log('  log     - View the last 10 lines of the log file');
+    console.log('  status  - Check if the server is running');
+    console.log('  exit    - Stop the server and exit');
+    console.log('\nType a command or press Ctrl+C to exit\n');
     
     // Handle user commands
     rl.on('line', (input) => {

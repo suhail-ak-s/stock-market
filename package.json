@@ -5,7 +5,8 @@
   "main": "dist/index.js",
   "type": "module",
   "bin": {
-    "stock-market-mcp-server": "bin/cli.js"
+    "stock-market-mcp-server": "bin/cli.js",
+    "stock-market-test": "npx-test.js"
   },
   "scripts": {
     "build": "tsc",
