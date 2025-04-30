@@ -16,7 +16,8 @@
     "prepare": "chmod +x bin/cli.js npx-test.js && npm run build",
     "install-global": "npm install -g .",
     "postpublish": "npm run test-npx",
-    "test-npx": "cd /tmp && npx -y stock-market-mcp-server@latest --help"
+    "test-npx": "cd /tmp && npx -y stock-market-mcp-server@latest --help",
+    "version-bump": "node scripts/version-bump.js"
   },
   "keywords": [
     "mcp",
