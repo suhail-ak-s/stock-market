@@ -215,10 +215,23 @@ The server logs all activity to temporary files:
 
 ## Version History
 
+- **v1.0.12** - Fixed npm publishing and workflow issues
 - **v1.0.7** - Fixed ESM syntax issues in test script
 - **v1.0.6** - Enhanced npx compatibility and added diagnostics mode
 - **v1.0.5** - Improved Claude Desktop integration for MCP communication
 - **v1.0.4** - Initial public release
+
+## Contributors
+
+Thanks to all the contributors who have helped make this project better:
+
+| Name | GitHub | Contributions |
+| ---- | ------ | ------------- |
+| Suhail AK | [@suhail-ak-s](https://github.com/suhail-ak-s) | Project creator and main developer |
+| Claude AI | | Workflow optimization and bug fixes |
+| Your Name Here | | We welcome contributions! |
+
+Want to contribute? Check out our [contributing guidelines](CONTRIBUTING.md) to get started.
 
 ## License
 
