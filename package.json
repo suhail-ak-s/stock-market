@@ -1,5 +1,5 @@
 {
-  "name": "@suhail-ak-s/stock-market-mcp-server",
+  "name": "stock-market-mcp-server",
   "version": "1.0.12",
   "description": "Financial Datasets MCP Server for Stock Market API",
   "main": "dist/index.js",
