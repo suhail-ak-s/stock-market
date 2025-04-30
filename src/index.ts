@@ -72,6 +72,16 @@ function safeGetArgs<T>(args: any, defaultValues: T): T {
 }
 
 function parseArgs(): FinancialConfig {
+  // First check for environment variables (used when running in npx mode)
+  if (process.env.FINANCIAL_API_KEY) {
+    logger.log('Using API key from environment variable');
+    return {
+      apiKey: process.env.FINANCIAL_API_KEY,
+      baseUrl: process.env.FINANCIAL_API_BASE_URL || 'https://api.financialdatasets.ai'
+    };
+  }
+
+  // Otherwise parse from command line
   const args = process.argv.slice(2);
   const config: Partial<FinancialConfig> = {
     baseUrl: 'https://api.financialdatasets.ai',
@@ -88,7 +98,7 @@ function parseArgs(): FinancialConfig {
   }
 
   if (!config.apiKey) {
-    throw new Error('Financial Datasets API key is required. Use --api-key argument.');
+    throw new Error('Financial Datasets API key is required. Use --api-key argument or set FINANCIAL_API_KEY environment variable.');
   }
 
   return config as FinancialConfig;

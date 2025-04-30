@@ -17,14 +17,18 @@ const writeDebug = (message) => {
   }
 };
 
+// Start debugging
 writeDebug('CLI script started');
 writeDebug(`Node version: ${process.version}`);
 writeDebug(`Platform: ${process.platform}`);
 writeDebug(`CLI Arguments: ${process.argv.join(' ')}`);
 writeDebug(`Is stdin a TTY: ${process.stdin.isTTY}`);
 writeDebug(`Is stdout a TTY: ${process.stdout.isTTY}`);
+writeDebug(`Process PID: ${process.pid}`);
+writeDebug(`Executable path: ${process.execPath}`);
+writeDebug(`Current directory: ${process.cwd()}`);
 
-// Print debug file location
+// Print debug file location to stderr (not stdout)
 console.error(`Debug log: ${debugFile}`);
 
 const __filename = fileURLToPath(import.meta.url);
@@ -35,6 +39,21 @@ writeDebug(`__filename: ${__filename}`);
 writeDebug(`__dirname: ${__dirname}`);
 writeDebug(`packageRoot: ${packageRoot}`);
 
+// Check if bin/cli.js is executable
+try {
+  const stats = fs.statSync(__filename);
+  const isExecutable = !!(stats.mode & fs.constants.S_IXUSR);
+  writeDebug(`Is CLI executable: ${isExecutable}`);
+  
+  // Make it executable if it's not
+  if (!isExecutable) {
+    fs.chmodSync(__filename, '755');
+    writeDebug('Made CLI executable');
+  }
+} catch (err) {
+  writeDebug(`Error checking/setting executable: ${err.message}`);
+}
+
 // Check for stored API key
 let storedApiKey = '';
 const configDir = path.join(process.env.HOME || process.env.USERPROFILE, '.financial-mcp');
@@ -44,6 +63,7 @@ try {
   if (fs.existsSync(configFile)) {
     const config = JSON.parse(fs.readFileSync(configFile, 'utf8'));
     storedApiKey = config.apiKey || '';
+    writeDebug('Found stored API key');
   }
 } catch (err) {
   console.warn('Warning: Could not read stored API key.');
@@ -75,16 +95,21 @@ if (isMcpContext) {
   writeDebug('Setting non-interactive mode due to MCP context detection');
 }
 
+// Process command line arguments
 for (let i = 0; i < args.length; i++) {
   const arg = args[i];
   if ((arg === '--api-key' || arg === '-k') && i + 1 < args.length) {
     apiKey = args[++i];
+    writeDebug('Found API key in arguments');
   } else if ((arg === '--base-url' || arg === '-u') && i + 1 < args.length) {
     baseUrl = args[++i];
+    writeDebug(`Using custom base URL: ${baseUrl}`);
   } else if (arg === '--debug' || arg === '-d') {
     debug = true;
+    writeDebug('Debug mode enabled');
   } else if (arg === '--non-interactive' || arg === '-n') {
     nonInteractive = true;
+    writeDebug('Non-interactive mode enabled via flag');
   } else if (arg === '--help' || arg === '-h') {
     console.log(`
 Financial Datasets MCP Server - Stock Market API
@@ -109,6 +134,7 @@ Example:
 if (!apiKey && storedApiKey) {
   console.log('Using stored API key.');
   apiKey = storedApiKey;
+  writeDebug('Using stored API key');
 }
 
 // Check for API key
@@ -175,10 +201,36 @@ function startServer(apiKey, baseUrl, debug, nonInteractive) {
   if (!fs.existsSync(indexPath)) {
     console.error(`Error: Server file not found at ${indexPath}`);
     writeDebug(`Error: Server file not found at ${indexPath}`);
-    process.exit(1);
+    
+    // Try to find it elsewhere - npx might have installed in a different location
+    const alternativePaths = [
+      path.join(process.cwd(), 'node_modules', 'stock-market-mcp-server', 'dist', 'index.js'),
+      path.join(process.cwd(), 'dist', 'index.js')
+    ];
+    
+    let found = false;
+    for (const altPath of alternativePaths) {
+      writeDebug(`Checking alternative path: ${altPath}`);
+      if (fs.existsSync(altPath)) {
+        writeDebug(`Found server at alternative path: ${altPath}`);
+        found = true;
+        startServerWithPath(altPath, apiKey, baseUrl, debug, nonInteractive);
+        return;
+      }
+    }
+    
+    if (!found) {
+      writeDebug('Could not find server file in any location');
+      console.error('Server file not found. Please reinstall the package.');
+      process.exit(1);
+    }
+  } else {
+    startServerWithPath(indexPath, apiKey, baseUrl, debug, nonInteractive);
   }
-  
-  writeDebug(`Starting server process with: node ${indexPath} --api-key [REDACTED] --base-url ${baseUrl}`);
+}
+
+function startServerWithPath(serverPath, apiKey, baseUrl, debug, nonInteractive) {
+  writeDebug(`Starting server with path: ${serverPath}`);
   
   try {
     if (isMcpContext) {
@@ -189,13 +241,20 @@ function startServer(apiKey, baseUrl, debug, nonInteractive) {
       // Write warning to stderr (not stdout which needs to be clean for MCP)
       console.error('Running in MCP context mode - stdout will be used for MCP communication');
       
-      // We need to use exec-style behavior here, not spawn
-      // Since we're in the same process, just directly import and run the server
-      import(indexPath).then(() => {
+      // Set environment variables for the server
+      process.env.FINANCIAL_API_KEY = apiKey;
+      process.env.FINANCIAL_API_BASE_URL = baseUrl;
+      process.env.FINANCIAL_MCP_DEBUG = debug ? '1' : '0';
+      
+      // We need to use dynamic import to load the server module
+      import(serverPath).then(() => {
         writeDebug('Server module imported and running directly');
       }).catch(err => {
-        console.error('Failed to import server module:', err);
+        console.error('Failed to import server module:', err.message);
         writeDebug(`Import error: ${err.message}`);
+        if (err.stack) {
+          writeDebug(`Import error stack: ${err.stack}`);
+        }
         process.exit(1);
       });
       
@@ -207,8 +266,8 @@ function startServer(apiKey, baseUrl, debug, nonInteractive) {
     console.log('Starting Financial Datasets MCP Server...');
     
     // Start the server process with proper stdio configuration
-    const serverProcess = spawn('node', [
-      indexPath,
+    const serverProcess = spawn(process.execPath, [
+      serverPath,
       '--api-key', apiKey,
       '--base-url', baseUrl
     ], {
@@ -242,7 +301,7 @@ function startServer(apiKey, baseUrl, debug, nonInteractive) {
       console.log('This server provides financial data to AI models that support MCP.');
       console.log('It doesn\'t have a web interface - it\'s designed to be used by AI systems.');
       console.log('\nPress Ctrl+C to stop the server.');
-      console.log(`Log file is available at: ${logFile}`);
+      console.log(`Log file is available at: ${path.join(os.tmpdir(), 'financial-mcp.log')}`);
       console.log(`Debug log is available at: ${debugFile}`);
       return;
     }
@@ -279,8 +338,8 @@ function startServer(apiKey, baseUrl, debug, nonInteractive) {
           
         case 'log':
           try {
-            const logContent = fs.existsSync(logFile) 
-              ? fs.readFileSync(logFile, 'utf8').split('\n').slice(-10).join('\n') 
+            const logContent = fs.existsSync(path.join(os.tmpdir(), 'financial-mcp.log')) 
+              ? fs.readFileSync(path.join(os.tmpdir(), 'financial-mcp.log'), 'utf8').split('\n').slice(-10).join('\n') 
               : 'Log file not found';
             console.log('\nLast 10 log entries:');
             console.log(logContent || 'No log entries found');

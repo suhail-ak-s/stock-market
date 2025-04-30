@@ -16,6 +16,11 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Log some diagnostic info
+console.log(`Running install script from: ${__dirname}`);
+console.log(`Node version: ${process.version}`);
+console.log(`Platform: ${process.platform}`);
+
 // Set up config directory
 const configDir = path.join(os.homedir(), '.financial-mcp');
 if (!fs.existsSync(configDir)) {
@@ -23,13 +28,19 @@ if (!fs.existsSync(configDir)) {
   console.log(`Created config directory: ${configDir}`);
 }
 
-// Make the cli.js executable
-const cliPath = path.join(__dirname, 'bin', 'cli.js');
-try {
-  fs.chmodSync(cliPath, '755');
-  console.log('Made CLI script executable');
-} catch (err) {
-  console.warn(`Warning: Could not make CLI script executable. You may need to run: chmod +x ${cliPath}`);
+// Make the CLI scripts executable
+const files = [
+  path.join(__dirname, 'bin', 'cli.js'),
+  path.join(__dirname, 'npx-test.js')
+];
+
+for (const file of files) {
+  try {
+    fs.chmodSync(file, 0o755); // rwxr-xr-x
+    console.log(`Made executable: ${file}`);
+  } catch (err) {
+    console.warn(`Warning: Could not make ${file} executable. You may need to run: chmod +x ${file}`);
+  }
 }
 
 // Check if globally installed

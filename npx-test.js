@@ -22,9 +22,67 @@ fs.writeFileSync(testLogFile, `[${new Date().toISOString()}] MCP Server Test Sta
 console.log(`Test log: ${testLogFile}`);
 console.log('Running Stock Market MCP Server test...');
 
+// Basic diagnostics for npx troubleshooting
+const args = process.argv.slice(2);
+if (args.includes('--diagnostics')) {
+  // Run diagnostics mode to troubleshoot npx issues
+  console.log('\n--- NPX DIAGNOSTICS MODE ---');
+  console.log('Node version:', process.version);
+  console.log('Platform:', process.platform);
+  console.log('Running from:', __dirname);
+  console.log('Is executable:', !!(fs.statSync(__filename).mode & fs.constants.S_IXUSR));
+  
+  // Check if CLI script exists and is executable
+  const cliPath = path.join(__dirname, 'bin', 'cli.js');
+  console.log('CLI script exists:', fs.existsSync(cliPath));
+  if (fs.existsSync(cliPath)) {
+    console.log('CLI script executable:', !!(fs.statSync(cliPath).mode & fs.constants.S_IXUSR));
+  }
+  
+  // Check if dist/index.js exists
+  const indexPath = path.join(__dirname, 'dist', 'index.js');
+  console.log('index.js exists:', fs.existsSync(indexPath));
+  
+  // Check module structure
+  console.log('\nPackage directory contents:');
+  fs.readdirSync(__dirname).forEach(file => {
+    console.log(`- ${file} (${fs.statSync(path.join(__dirname, file)).isDirectory() ? 'dir' : 'file'})`);
+  });
+  
+  if (fs.existsSync(path.join(__dirname, 'bin'))) {
+    console.log('\nBin directory contents:');
+    fs.readdirSync(path.join(__dirname, 'bin')).forEach(file => {
+      console.log(`- ${file} (${fs.statSync(path.join(__dirname, 'bin', file)).isDirectory() ? 'dir' : 'file'})`);
+    });
+  }
+  
+  if (fs.existsSync(path.join(__dirname, 'dist'))) {
+    console.log('\nDist directory contents:');
+    fs.readdirSync(path.join(__dirname, 'dist')).forEach(file => {
+      console.log(`- ${file} (${fs.statSync(path.join(__dirname, 'dist', file)).isDirectory() ? 'dir' : 'file'})`);
+    });
+  }
+  
+  console.log('\nScript permission test...');
+  try {
+    fs.chmodSync(cliPath, 0o755);
+    console.log('Successfully set permissions on CLI script');
+  } catch (err) {
+    console.log('Failed to set permissions:', err.message);
+  }
+  
+  console.log('\nNPX test...');
+  const testProcess = spawn('node', [cliPath, '--help'], { stdio: 'inherit' });
+  testProcess.on('exit', (code) => {
+    console.log(`Test process exited with code ${code}`);
+    process.exit(0);
+  });
+  
+  return;
+}
+
 // Check if API key was provided
 let apiKey = process.env.FINANCIAL_API_KEY;
-const args = process.argv.slice(2);
 
 // Look for API key in arguments
 for (let i = 0; i < args.length; i++) {

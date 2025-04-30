@@ -1,6 +1,6 @@
 {
   "name": "stock-market-mcp-server",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "Financial Datasets MCP Server for Stock Market API",
   "main": "dist/index.js",
   "type": "module",
@@ -12,9 +12,11 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "ts-node --esm src/index.ts",
-    "postinstall": "npm run build",
-    "prepare": "chmod +x bin/cli.js && npm run build",
-    "install-global": "node install.js"
+    "postinstall": "node install.js",
+    "prepare": "chmod +x bin/cli.js npx-test.js && npm run build",
+    "install-global": "npm install -g .",
+    "postpublish": "npm run test-npx",
+    "test-npx": "cd /tmp && npx -y stock-market-mcp-server@latest --help"
   },
   "keywords": [
     "mcp",
@@ -37,7 +39,8 @@
     "bin/",
     "dist/",
     "README.md",
-    "install.js"
+    "install.js",
+    "npx-test.js"
   ],
   "engines": {
     "node": ">=18.0.0"
