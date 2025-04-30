@@ -11,6 +11,7 @@ A Model Context Protocol (MCP) server implementation for the Financial Datasets 
 - Get cryptocurrency price data and real-time snapshots
 - Access financial prompts for company and crypto analysis
 - Use templates for constructing financial data queries
+- Seamless integration with Claude Desktop and other AI tools
 
 ## Installation & Usage
 
@@ -28,6 +29,19 @@ Additional options:
 ```bash
 npx stock-market-mcp-server --help
 ```
+
+### Using with Claude Desktop
+
+To use with Claude Desktop:
+
+1. Open Claude Desktop
+2. Enable the Plugins feature
+3. In a terminal window, run:
+   ```bash
+   npx stock-market-mcp-server --api-key YOUR_API_KEY
+   ```
+4. In Claude Desktop, click Add Plugin and connect to the MCP server
+5. Ask Claude to retrieve financial data about companies and crypto markets
 
 ### Install from GitHub Packages
 
@@ -88,6 +102,8 @@ node dist/index.js --api-key YOUR_API_KEY
 
 - `--api-key`, `-k` (required): Your Financial Datasets API key
 - `--base-url`, `-u` (optional): Custom API base URL (defaults to https://api.financialdatasets.ai)
+- `--debug`, `-d`: Enable debug output
+- `--non-interactive`, `-n`: Run in non-interactive mode (no prompt)
 - `--help`, `-h`: Show help message
 
 ## MCP Integration
@@ -155,6 +171,26 @@ The server provides these templates for constructing financial data URIs:
 6. `financial_metrics`: Template for viewing company financial metrics (`financial://metrics/{ticker}/{period}`)
 7. `financial_statements`: Template for viewing company financial statements (`financial://financials/{ticker}/{statement_type}/{period}`)
 
+## Troubleshooting
+
+If you encounter issues with the server:
+
+1. Check the log files in your temporary directory:
+   - `/tmp/financial-mcp.log` - Server logs
+   - `/tmp/stock-market-debug.log` - Debug logs
+
+2. Run the diagnostics test:
+   ```bash
+   npx -p stock-market-mcp-server stock-market-test --diagnostics
+   ```
+
+3. Ensure your API key is valid and has access to the Financial Datasets API
+
+4. If using with Claude Desktop and having connection issues, try running in non-interactive mode:
+   ```bash
+   npx stock-market-mcp-server --api-key YOUR_API_KEY --non-interactive
+   ```
+
 ## Development
 
 For development, you can run the server directly using ts-node:
@@ -163,10 +199,26 @@ For development, you can run the server directly using ts-node:
 npm run dev -- --api-key YOUR_API_KEY
 ```
 
+### Environment Variables
+
+The server supports the following environment variables:
+
+- `FINANCIAL_API_KEY`: Your API key for the Financial Datasets API
+- `FINANCIAL_API_BASE_URL`: Custom API base URL (defaults to https://api.financialdatasets.ai)
+- `CLAUDE_API_KEY`: Set by Claude Desktop for MCP context detection
+
 ## Logging
 
-The server logs all activity to a temporary file at:
-`/tmp/financial-mcp.log` (Unix/macOS) or equivalent temporary directory on Windows.
+The server logs all activity to temporary files:
+- `/tmp/financial-mcp.log` - Main server logs (Unix/macOS) or equivalent temporary directory on Windows
+- `/tmp/stock-market-debug.log` - Debug logs for troubleshooting
+
+## Version History
+
+- **v1.0.7** - Fixed ESM syntax issues in test script
+- **v1.0.6** - Enhanced npx compatibility and added diagnostics mode
+- **v1.0.5** - Improved Claude Desktop integration for MCP communication
+- **v1.0.4** - Initial public release
 
 ## License
 
