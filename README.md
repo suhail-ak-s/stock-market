@@ -242,34 +242,6 @@ Thanks goes to these wonderful people ([emoji key](https://allcontributors.org/d
         <a href="#design-suhail" title="Design">🎨</a>
         <a href="#doc-suhail" title="Documentation">📖</a>
       </td>
-      <td align="center" valign="top" width="14.28%">
-        <a href="https://github.com/claude-ai">
-          <img src="https://github.com/anthropics.png" width="100px;" alt="Claude AI"/>
-          <br />
-          <sub><b>Claude AI</b></sub>
-        </a>
-        <br />
-        <a href="#code-claude" title="Code">💻</a>
-        <a href="#tool-claude" title="Tools">🔧</a>
-        <a href="#doc-claude" title="Documentation">📖</a>
-      </td>
-      <td align="center" valign="top" width="14.28%">
-        <a href="https://github.com/">
-          <img src="https://github.com/github.png" width="100px;" alt="GitHub"/>
-          <br />
-          <sub><b>GitHub Actions</b></sub>
-        </a>
-        <br />
-        <a href="#infra-github" title="Infrastructure">🚇</a>
-        <a href="#ci-github" title="Continuous Integration">⚙️</a>
-      </td>
-      <td align="center" valign="top" width="14.28%">
-        <img src="https://github.githubassets.com/images/modules/site/home/footer-illustration.svg" width="100px;" alt="Your Name Here"/>
-        <br />
-        <sub><b>Your Name Here</b></sub>
-        <br />
-        <a href="#" title="Contributions Welcome">🙌</a>
-      </td>
     </tr>
   </tbody>
 </table>
