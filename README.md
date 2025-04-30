@@ -221,6 +221,8 @@ The server logs all activity to temporary files:
 - **v1.0.5** - Improved Claude Desktop integration for MCP communication
 - **v1.0.4** - Initial public release
 
+Note: Version numbers are automatically incremented by our GitHub Actions workflow on each successful merge to the main branch.
+
 ## Contributors
 
 Thanks to all the contributors who have helped make this project better:
