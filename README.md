@@ -215,6 +215,7 @@ The server logs all activity to temporary files:
 
 ## Version History
 
+- **v1.0.14** - Fixed npm publishing issues and updated contributors section
 - **v1.0.12** - Fixed npm publishing and workflow issues
 - **v1.0.7** - Fixed ESM syntax issues in test script
 - **v1.0.6** - Enhanced npx compatibility and added diagnostics mode
@@ -223,17 +224,57 @@ The server logs all activity to temporary files:
 
 Note: Version numbers are automatically incremented by our GitHub Actions workflow on each successful merge to the main branch.
 
-## Contributors
+## Contributors ✨
 
-Thanks to all the contributors who have helped make this project better:
+Thanks goes to these wonderful people ([emoji key](https://allcontributors.org/docs/en/emoji-key)):
 
-| Name | GitHub | Contributions |
-| ---- | ------ | ------------- |
-| Suhail AK | [@suhail-ak-s](https://github.com/suhail-ak-s) | Project creator and main developer |
-| Claude AI | | Workflow optimization and bug fixes |
-| Your Name Here | | We welcome contributions! |
+<table>
+  <tbody>
+    <tr>
+      <td align="center" valign="top" width="14.28%">
+        <a href="https://github.com/suhail-ak-s">
+          <img src="https://avatars.githubusercontent.com/u/157091287?v=4" width="100px;" alt="Suhail AK"/>
+          <br />
+          <sub><b>Suhail AK</b></sub>
+        </a>
+        <br />
+        <a href="#code-suhail" title="Code">💻</a>
+        <a href="#design-suhail" title="Design">🎨</a>
+        <a href="#doc-suhail" title="Documentation">📖</a>
+      </td>
+      <td align="center" valign="top" width="14.28%">
+        <a href="https://github.com/claude-ai">
+          <img src="https://github.com/anthropics.png" width="100px;" alt="Claude AI"/>
+          <br />
+          <sub><b>Claude AI</b></sub>
+        </a>
+        <br />
+        <a href="#code-claude" title="Code">💻</a>
+        <a href="#tool-claude" title="Tools">🔧</a>
+        <a href="#doc-claude" title="Documentation">📖</a>
+      </td>
+      <td align="center" valign="top" width="14.28%">
+        <a href="https://github.com/">
+          <img src="https://github.com/github.png" width="100px;" alt="GitHub"/>
+          <br />
+          <sub><b>GitHub Actions</b></sub>
+        </a>
+        <br />
+        <a href="#infra-github" title="Infrastructure">🚇</a>
+        <a href="#ci-github" title="Continuous Integration">⚙️</a>
+      </td>
+      <td align="center" valign="top" width="14.28%">
+        <img src="https://github.githubassets.com/images/modules/site/home/footer-illustration.svg" width="100px;" alt="Your Name Here"/>
+        <br />
+        <sub><b>Your Name Here</b></sub>
+        <br />
+        <a href="#" title="Contributions Welcome">🙌</a>
+      </td>
+    </tr>
+  </tbody>
+</table>
 
-Want to contribute? Check out our [contributing guidelines](CONTRIBUTING.md) to get started.
+This project follows the [all-contributors](https://github.com/all-contributors/all-contributors) specification. Contributions of any kind are welcome!
 
 ## License
 
