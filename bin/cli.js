@@ -25,7 +25,7 @@ writeDebug(`Is stdin a TTY: ${process.stdin.isTTY}`);
 writeDebug(`Is stdout a TTY: ${process.stdout.isTTY}`);
 
 // Print debug file location
-console.log(`Debug log: ${debugFile}`);
+console.error(`Debug log: ${debugFile}`);
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -57,12 +57,22 @@ let baseUrl = 'https://api.financialdatasets.ai';
 let debug = false;
 let nonInteractive = false;
 
-// Check if we're running under npx
-const isNpxEnvironment = !process.stdin.isTTY || process.env.npm_execpath?.includes('npx');
-writeDebug(`Detected npx environment: ${isNpxEnvironment}`);
-if (isNpxEnvironment) {
+// Detect if we're running under an MCP context (Claude/ChatGPT/etc.)
+// Check multiple indicators that we might be running in an MCP context
+const isMcpContext = 
+  // Either stdin is not a TTY (being piped)
+  !process.stdin.isTTY || 
+  // Or we're running under npx
+  process.env.npm_execpath?.includes('npx') ||
+  // Or we have a specific environment variable set by Claude
+  process.env.CLAUDE_API_KEY ||
+  // Or we were run with --non-interactive flag
+  args.includes('--non-interactive') || args.includes('-n');
+
+writeDebug(`Detected MCP context: ${isMcpContext}`);
+if (isMcpContext) {
   nonInteractive = true;
-  writeDebug('Setting non-interactive mode due to npx environment');
+  writeDebug('Setting non-interactive mode due to MCP context detection');
 }
 
 for (let i = 0; i < args.length; i++) {
@@ -153,12 +163,11 @@ if (!apiKey) {
 }
 
 function startServer(apiKey, baseUrl, debug, nonInteractive) {
-  console.log('Starting Financial Datasets MCP Server...');
   writeDebug(`Starting server with apiKey: ${apiKey ? '[REDACTED]' : 'none'}, baseUrl: ${baseUrl}, debug: ${debug}, nonInteractive: ${nonInteractive}`);
   
   // Show log file location
   const logFile = path.join(os.tmpdir(), 'financial-mcp.log');
-  console.log(`Log file: ${logFile}`);
+  console.error(`Log file: ${logFile}`);
   writeDebug(`Log file: ${logFile}`);
   
   // Check if dist/index.js exists
@@ -172,13 +181,38 @@ function startServer(apiKey, baseUrl, debug, nonInteractive) {
   writeDebug(`Starting server process with: node ${indexPath} --api-key [REDACTED] --base-url ${baseUrl}`);
   
   try {
-    // Start the server process
+    if (isMcpContext) {
+      // Direct execution for MCP contexts - this is critical!
+      // In MCP context, we need to just directly execute the server without spawning
+      writeDebug('Directly executing server in MCP context (no spawn)');
+      
+      // Write warning to stderr (not stdout which needs to be clean for MCP)
+      console.error('Running in MCP context mode - stdout will be used for MCP communication');
+      
+      // We need to use exec-style behavior here, not spawn
+      // Since we're in the same process, just directly import and run the server
+      import(indexPath).then(() => {
+        writeDebug('Server module imported and running directly');
+      }).catch(err => {
+        console.error('Failed to import server module:', err);
+        writeDebug(`Import error: ${err.message}`);
+        process.exit(1);
+      });
+      
+      // No further code should execute here that would write to stdout
+      return;
+    }
+    
+    // Interactive mode - start as child process
+    console.log('Starting Financial Datasets MCP Server...');
+    
+    // Start the server process with proper stdio configuration
     const serverProcess = spawn('node', [
       indexPath,
       '--api-key', apiKey,
       '--base-url', baseUrl
     ], {
-      stdio: debug ? 'inherit' : 'ignore'
+      stdio: ['ignore', debug ? 'inherit' : 'ignore', 'inherit']
     });
     
     serverProcess.on('error', (err) => {
@@ -248,10 +282,10 @@ function startServer(apiKey, baseUrl, debug, nonInteractive) {
             const logContent = fs.existsSync(logFile) 
               ? fs.readFileSync(logFile, 'utf8').split('\n').slice(-10).join('\n') 
               : 'Log file not found';
-            console.log('\nLast 10 log entries:\n' + logContent);
+            console.log('\nLast 10 log entries:');
+            console.log(logContent || 'No log entries found');
           } catch (err) {
             console.error('Error reading log file:', err.message);
-            writeDebug(`Error reading log file: ${err.message}`);
           }
           break;
           
@@ -260,41 +294,22 @@ function startServer(apiKey, baseUrl, debug, nonInteractive) {
             console.log('Server is not running.');
           } else {
             console.log('Server is running.');
-            try {
-              const stats = fs.statSync(logFile);
-              const lastModified = new Date(stats.mtime);
-              console.log(`Last log activity: ${lastModified.toLocaleString()}`);
-            } catch (err) {
-              console.log('Cannot read log file.');
-              writeDebug(`Error checking log file: ${err.message}`);
-            }
           }
           break;
           
         case 'exit':
           console.log('Shutting down server...');
           serverProcess.kill('SIGINT');
-          rl.close();
           process.exit(0);
           break;
           
         default:
-          if (command) {
-            console.log(`Unknown command: ${command}. Type 'help' for a list of commands.`);
-          }
+          console.log('Unknown command. Type "help" for available commands.');
       }
-      
-      rl.prompt();
     });
-    
-    rl.setPrompt('> ');
-    rl.prompt();
   } catch (err) {
-    console.error('Error starting server:', err.message);
+    console.error('Failed to start server:', err);
     writeDebug(`Error in startServer: ${err.message}`);
-    if (err.stack) {
-      writeDebug(`Error stack: ${err.stack}`);
-    }
     process.exit(1);
   }
 } 
