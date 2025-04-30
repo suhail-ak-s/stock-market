@@ -15,7 +15,7 @@
     "postinstall": "node install.js",
     "prepare": "chmod +x bin/cli.js npx-test.js && npm run build",
     "install-global": "npm install -g .",
-    "postpublish": "npm run test-npx",
+    "postpublish": "echo 'Package published! Note: The npx test may not work immediately as the registry needs time to update.'",
     "test-npx": "cd /tmp && npx -y stock-market-mcp-server@latest --help",
     "version-bump": "node scripts/version-bump.js"
   },
