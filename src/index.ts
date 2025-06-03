@@ -951,12 +951,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
       
       try {
-        // This endpoint is hypothetical based on the documentation
-        const response = await apiClient.get(`/market/prices?ticker=${args.ticker}&period=${args.period}&limit=${args.limit}`);
+        // Use the correct Financial Datasets API endpoint for basic stock prices
+        // This is a simplified version compared to get_stock_prices_advanced
+        const response = await apiClient.get(`/prices/snapshot?ticker=${args.ticker}`);
         return {
           content: [{
             type: "text",
-            text: JSON.stringify(response.data, null, 2)
+            text: JSON.stringify(response.data.snapshot, null, 2)
           }]
         };
       } catch (error) {
@@ -972,12 +973,30 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
       
       try {
-        // This endpoint is hypothetical based on the documentation
-        const response = await apiClient.get(`/company/search?query=${encodeURIComponent(args.query)}&limit=${args.limit}`);
+        // Since Financial Datasets API doesn't have a dedicated company search endpoint,
+        // we'll use the available tickers endpoint and filter the results
+        // This is a workaround until a proper search endpoint is available
+        const response = await apiClient.get('/company/facts/tickers/');
+        const allTickers = response.data.tickers || [];
+        
+        // Simple search: filter tickers that contain the search query
+        const searchQuery = args.query.toLowerCase();
+        const matchingTickers = allTickers
+          .filter((ticker: string) => ticker.toLowerCase().includes(searchQuery))
+          .slice(0, args.limit);
+        
+        // For better search, you might want to use the search_financials endpoint instead
+        const searchResults = {
+          query: args.query,
+          results: matchingTickers,
+          total_found: matchingTickers.length,
+          note: "This is a basic ticker symbol search. For more advanced company searching, consider using the search_financials tool with filters."
+        };
+        
         return {
           content: [{
             type: "text",
-            text: JSON.stringify(response.data, null, 2)
+            text: JSON.stringify(searchResults, null, 2)
           }]
         };
       } catch (error) {
