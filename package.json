@@ -28,7 +28,7 @@
   "author": "Suhail AK <suhail@synergyship.com>",
   "license": "MIT",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.10.1",
+    "@modelcontextprotocol/sdk": "^1.17.2",
     "axios": "^1.6.2",
     "typescript": "^5.0.4"
   },

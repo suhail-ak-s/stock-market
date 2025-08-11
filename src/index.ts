@@ -12,7 +12,8 @@ import {
   ReadResourceRequestSchema,
   GetPromptRequestSchema,
   ListPromptsRequestSchema,
-  ListResourceTemplatesRequestSchema
+  ListResourceTemplatesRequestSchema,
+  CompleteRequestSchema
 } from "@modelcontextprotocol/sdk/types.js";
 import * as fs from 'fs';
 import * as path from 'path';
@@ -69,6 +70,251 @@ function safeGetArgs<T>(args: any, defaultValues: T): T {
   }
   
   return result;
+}
+
+/**
+ * Helper function to recursively find text content in a response object
+ */
+function findTextInObject(obj: any): string | null {
+  if (typeof obj === 'string') {
+    return obj;
+  }
+  
+  if (typeof obj === 'object' && obj !== null) {
+    // Check common text properties
+    if (obj.text && typeof obj.text === 'string') {
+      return obj.text;
+    }
+    if (obj.content && typeof obj.content === 'string') {
+      return obj.content;
+    }
+    if (obj.message && typeof obj.message === 'string') {
+      return obj.message;
+    }
+    
+    // Recursively search in nested objects
+    for (const key in obj) {
+      if (obj.hasOwnProperty(key)) {
+        const result = findTextInObject(obj[key]);
+        if (result) {
+          return result;
+        }
+      }
+    }
+  }
+  
+  return null;
+}
+
+/**
+ * Helper function to request LLM sampling from the client
+ */
+async function requestSampling(
+  server: any, 
+  messages: any[], 
+  systemPrompt?: string, 
+  modelPreferences?: any
+): Promise<string> {
+  console.log('🚀 [TRANSPORT] === STARTING SAMPLING REQUEST ===');
+  
+  try {
+    logger.log('Initiating sampling request to client');
+    
+    const samplingParams = {
+      messages,
+      systemPrompt: systemPrompt || "You are a financial analysis expert. Provide clear, accurate, and actionable insights.",
+      modelPreferences: modelPreferences || {
+        hints: [
+          { name: "claude-3-sonnet" },
+          { name: "gpt-4" },
+          { name: "claude" }
+        ],
+        intelligencePriority: 0.9,
+        speedPriority: 0.6,
+        costPriority: 0.4
+      },
+      maxTokens: 4000
+    };
+    
+    logger.log('Sending sampling request with params: ' + JSON.stringify(samplingParams, null, 2));
+    
+    // TRANSPORT LOG: Sampling request being sent to client
+    console.log('\n📡 [TRANSPORT] SENDING SAMPLING REQUEST TO CLIENT:');
+    console.log('=====================================');
+    console.log('Method: sampling/createMessage');
+    console.log('Message Count:', samplingParams.messages.length);
+    console.log('System Prompt Length:', samplingParams.systemPrompt?.length || 0, 'characters');
+    console.log('Model Preferences:', JSON.stringify(samplingParams.modelPreferences, null, 2));
+    console.log('Max Tokens:', samplingParams.maxTokens);
+    console.log('Message Preview (first 200 chars):', samplingParams.messages[0]?.content?.text?.substring(0, 200) + '...');
+    console.log('=====================================\n');
+    
+    // Send the sampling request to the client
+    let response;
+    try {
+      console.log('🔄 [TRANSPORT] CALLING server.request() for sampling...');
+      console.log('🔍 [TRANSPORT] Server object type:', typeof server);
+      console.log('🔍 [TRANSPORT] Server has request method:', typeof server.request);
+      console.log('🔍 [TRANSPORT] Server methods:', Object.getOwnPropertyNames(server));
+      console.log('🔍 [TRANSPORT] Server prototype methods:', Object.getOwnPropertyNames(Object.getPrototypeOf(server)));
+      console.log('🔍 [TRANSPORT] Server constructor name:', server.constructor.name);
+      
+      // Check available methods for sampling
+      console.log('🔍 [TRANSPORT] Checking for sampling methods...');
+      console.log('🔍 [TRANSPORT] server.request:', typeof server.request);
+      console.log('🔍 [TRANSPORT] server.requestSampling:', typeof server.requestSampling);
+      console.log('🔍 [TRANSPORT] server.createMessage:', typeof server.createMessage);
+      console.log('🔍 [TRANSPORT] server.sendRequest:', typeof server.sendRequest);
+      
+      // Try different methods based on what's available
+      let requestMethod = null;
+      let methodName = '';
+      
+      if (typeof server.requestSampling === 'function') {
+        requestMethod = server.requestSampling.bind(server);
+        methodName = 'requestSampling';
+      } else if (typeof server.createMessage === 'function') {
+        requestMethod = server.createMessage.bind(server);
+        methodName = 'createMessage';
+      } else if (typeof server.sendRequest === 'function') {
+        requestMethod = server.sendRequest.bind(server);
+        methodName = 'sendRequest';
+      } else if (typeof server.request === 'function') {
+        requestMethod = server.request.bind(server);
+        methodName = 'request';
+      } else {
+        console.error('❌ [TRANSPORT] Server does not have any request methods');
+        throw new Error('Server instance does not support making requests to client');
+      }
+      
+      console.log(`✅ [TRANSPORT] Using method: ${methodName}`);
+      
+      // Create the request object
+      const requestObject = {
+        method: "sampling/createMessage",
+        params: samplingParams
+      };
+      
+      console.log('📤 [TRANSPORT] Request object:', JSON.stringify(requestObject, null, 2));
+      
+      // Use the appropriate method based on what's available
+      if (methodName === 'requestSampling') {
+        console.log('🔄 [TRANSPORT] Using requestSampling method...');
+        response = await requestMethod(samplingParams);
+      } else if (methodName === 'createMessage') {
+        console.log('🔄 [TRANSPORT] Using createMessage method...');
+        response = await requestMethod(samplingParams);
+      } else {
+        console.log(`🔄 [TRANSPORT] Using ${methodName} method...`);
+        response = await requestMethod(requestObject);
+      }
+      
+      console.log('✅ [TRANSPORT] SAMPLING REQUEST COMPLETED SUCCESSFULLY');
+      
+    } catch (requestError) {
+      console.error('❌ [TRANSPORT] SAMPLING REQUEST FAILED:', requestError);
+      console.error('Error details:', {
+        name: requestError instanceof Error ? requestError.name : 'Unknown',
+        message: requestError instanceof Error ? requestError.message : String(requestError),
+        stack: requestError instanceof Error ? requestError.stack : 'No stack trace'
+      });
+      
+      // Check if it's the specific parsing error
+      if (requestError instanceof Error && requestError.message.includes('Cannot read properties of undefined')) {
+        console.error('🚨 [TRANSPORT] DETECTED PARSING ERROR - This might be an MCP SDK issue');
+        console.error('Full error object:', JSON.stringify(requestError, null, 2));
+        
+        // For now, return a placeholder indicating sampling is not working
+        console.log('⚠️ [TRANSPORT] SAMPLING NOT WORKING - RETURNING PLACEHOLDER');
+        return "⚠️ **AI Analysis Not Available** ⚠️\n\nSampling request failed due to MCP SDK limitations. The server can send sampling requests to the client, but cannot receive the responses properly.\n\n**Technical Details:**\n- Client successfully receives sampling requests\n- Client generates LLM responses\n- Server fails to parse the response due to MCP SDK issue\n\n**Workaround needed:** This requires fixing the MCP transport layer or using a different approach for server-to-client sampling requests.";
+      }
+      
+      throw new Error(`Sampling request failed: ${requestError instanceof Error ? requestError.message : 'Unknown error'}`);
+    }
+    
+    // TRANSPORT LOG: Raw sampling response received from client
+    console.log('\n🔄 [TRANSPORT] SAMPLING RESPONSE RECEIVED FROM CLIENT:');
+    console.log('=====================================');
+    console.log(JSON.stringify(response, null, 2));
+    console.log('=====================================\n');
+    
+    logger.log('Received sampling response: ' + JSON.stringify(response));
+    
+    // Extract the text content from the response
+    let extractedText: string;
+    
+    // Handle different possible response formats
+    try {
+      if (response && typeof response === 'object') {
+        // Check for standard MCP sampling response format
+        if (response.content && response.content.type === 'text' && response.content.text) {
+          extractedText = response.content.text;
+          console.log('📝 [TRANSPORT] EXTRACTED TEXT FROM SAMPLING RESPONSE (content.text):');
+        }
+        // Check for direct text property
+        else if (response.text && typeof response.text === 'string') {
+          extractedText = response.text;
+          console.log('📝 [TRANSPORT] EXTRACTED TEXT FROM SAMPLING RESPONSE (.text):');
+        }
+        // Check for result property (some MCP implementations)
+        else if (response.result && response.result.content && response.result.content.text) {
+          extractedText = response.result.content.text;
+          console.log('📝 [TRANSPORT] EXTRACTED TEXT FROM SAMPLING RESPONSE (result.content.text):');
+        }
+        // Check if response itself has the text directly
+        else if (typeof response.content === 'string') {
+          extractedText = response.content;
+          console.log('📝 [TRANSPORT] EXTRACTED TEXT FROM SAMPLING RESPONSE (content as string):');
+        }
+        else {
+          // Try to find any text property recursively
+          const textValue = findTextInObject(response);
+          if (textValue) {
+            extractedText = textValue;
+            console.log('📝 [TRANSPORT] EXTRACTED TEXT FROM SAMPLING RESPONSE (found recursively):');
+          } else {
+            console.error('❌ [TRANSPORT] NO TEXT FOUND IN SAMPLING RESPONSE:', JSON.stringify(response, null, 2));
+            throw new Error('No text content found in sampling response');
+          }
+        }
+      }
+      // Handle string response
+      else if (typeof response === 'string') {
+        extractedText = response;
+        console.log('📝 [TRANSPORT] RESPONSE IS STRING:');
+      }
+      else {
+        console.error('❌ [TRANSPORT] UNEXPECTED SAMPLING RESPONSE FORMAT:', response);
+        throw new Error('Received unexpected response format from sampling request');
+      }
+      
+      // Log the extracted text details
+      console.log('Text Length:', extractedText.length, 'characters');
+      console.log('First 200 chars:', extractedText.substring(0, 200) + (extractedText.length > 200 ? '...' : ''));
+      console.log('Last 100 chars:', extractedText.length > 100 ? '...' + extractedText.substring(extractedText.length - 100) : extractedText);
+      console.log('');
+      
+      return extractedText;
+      
+    } catch (parseError) {
+      console.error('❌ [TRANSPORT] ERROR PARSING SAMPLING RESPONSE:', parseError);
+      console.error('Raw response:', JSON.stringify(response, null, 2));
+      throw new Error(`Failed to parse sampling response: ${parseError instanceof Error ? parseError.message : 'Unknown parsing error'}`);
+    }
+    
+  } catch (error) {
+    logger.error('💥 [TRANSPORT] === SAMPLING REQUEST FAILED ===');
+    logger.error('Error type:', typeof error);
+    logger.error('Error constructor:', error?.constructor?.name);
+    logger.error('Error message:', error instanceof Error ? error.message : String(error));
+    logger.error('Error stack:', error instanceof Error ? error.stack : 'No stack');
+    logger.error('Full error object:', JSON.stringify(error, null, 2));
+    
+    logger.error('Sampling request failed T:', error);
+    throw new Error(`Failed to request LLM analysis: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  } finally {
+    console.log('🏁 [TRANSPORT] === SAMPLING REQUEST COMPLETE ===\n');
+  }
 }
 
 function parseArgs(): FinancialConfig {
@@ -133,7 +379,14 @@ const server = new Server(
       },
       prompts: {
         list: true,
-        get: true
+        get: true,
+        listChanged: true
+      },
+      completion: {
+        complete: true
+      },
+      sampling: {
+        createMessage: true
       }
     }
   }
@@ -168,85 +421,8 @@ async function fetchAvailableCryptoTickers(limit = 10): Promise<string[]> {
   }
 }
 
-// Set up the resource listing request handler
-server.setRequestHandler(ListResourcesRequestSchema, async () => {
-  logger.log('Received list resources request');
-
-  try {
-    const stockTickers = await fetchAvailableTickers();
-    const cryptoTickers = await fetchAvailableCryptoTickers();
-    
-    const resources = [
-      ...stockTickers.map(ticker => ({
-        uri: new URL(`financial://company/${ticker}`),
-        name: ticker,
-        description: `Company data for ${ticker}`
-      })),
-      ...cryptoTickers.map(ticker => ({
-        uri: new URL(`financial://crypto/${ticker}`),
-        name: ticker,
-        description: `Cryptocurrency data for ${ticker}`
-      }))
-    ];
-
-    logger.log(`Returning ${resources.length} resources (stocks and crypto)`);
-    return { resources };
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    logger.error('Error handling list resources request:', error);
-    throw new Error(`Financial API error: ${errorMessage}`);
-  }
-});
-
-/**
- * Handler for reading company information.
- */
-server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
-  logger.log('Received read resource request: ' + JSON.stringify(request));
-  
-  try {
-    const url = new URL(request.params.uri);
-    const pathParts = url.pathname.split('/').filter(Boolean);
-    
-    if (pathParts[0] === 'company' && pathParts.length > 1) {
-      const ticker = pathParts[1];
-      
-      // Get company facts
-      const response = await apiClient.get(`/company/facts?ticker=${ticker}`);
-      const companyFacts = response.data.company_facts;
-      
-      return {
-        contents: [{
-          uri: request.params.uri,
-          mimeType: "application/json",
-          text: JSON.stringify(companyFacts, null, 2)
-        }]
-      };
-    }
-    
-    if (pathParts[0] === 'crypto' && pathParts.length > 1) {
-      const ticker = pathParts[1];
-      
-      // Get crypto snapshot
-      const response = await apiClient.get(`/crypto/prices/snapshot?ticker=${ticker}`);
-      const cryptoSnapshot = response.data.snapshot;
-      
-      return {
-        contents: [{
-          uri: request.params.uri,
-          mimeType: "application/json",
-          text: JSON.stringify(cryptoSnapshot, null, 2)
-        }]
-      };
-    }
-    
-    throw new Error("Invalid resource URI format. Expected: financial://company/{ticker} or financial://crypto/{ticker}");
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    logger.error('Error handling read resource request:', error);
-    throw new Error(`Failed to read resource: ${errorMessage}`);
-  }
-});
+// === FRESH RESOURCES IMPLEMENTATION ===
+// Following MCP 2025-06-18 specification exactly
 
 /**
  * List available tools for interacting with financial data.
@@ -895,6 +1071,55 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             }
           },
           "required": []
+        }
+      },
+      {
+        "name": "ai_financial_analysis",
+        "description": "Get AI-powered financial analysis and insights using LLM sampling",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "ticker": {
+              "type": "string",
+              "description": "The ticker symbol of the company to analyze"
+            },
+            "analysis_type": {
+              "type": "string",
+              "description": "Type of analysis to perform",
+              "enum": ["comprehensive", "valuation", "risks", "opportunities", "comparison"]
+            },
+            "context": {
+              "type": "string",
+              "description": "Additional context or specific questions for the analysis"
+            }
+          },
+          "required": ["ticker", "analysis_type"]
+        }
+      },
+      {
+        "name": "ai_market_insights",
+        "description": "Get AI-powered market insights and trend analysis using LLM sampling",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "focus_area": {
+              "type": "string",
+              "description": "Market focus area",
+              "enum": ["overall_market", "sector_analysis", "economic_indicators", "risk_assessment"]
+            },
+            "tickers": {
+              "type": "array",
+              "description": "Optional list of ticker symbols to focus on",
+              "items": {
+                "type": "string"
+              }
+            },
+            "context": {
+              "type": "string",
+              "description": "Specific questions or context for the market analysis"
+            }
+          },
+          "required": ["focus_area"]
         }
       }
     ]
@@ -1723,56 +1948,720 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
     }
     
+    case "ai_financial_analysis": {
+      const args = safeGetArgs(request.params.arguments, {
+        ticker: '',
+        analysis_type: 'comprehensive',
+        context: ''
+      });
+      
+      if (!args.ticker) {
+        throw new Error("Ticker is required for AI financial analysis");
+      }
+      
+      try {
+        // Gather comprehensive financial data
+        const [factResponse, metricsResponse, priceResponse] = await Promise.all([
+          apiClient.get(`/company/facts?ticker=${args.ticker}`),
+          apiClient.get(`/financial-metrics/snapshot?ticker=${args.ticker}`),
+          apiClient.get(`/prices/snapshot?ticker=${args.ticker}`)
+        ]);
+        
+        const companyFacts = factResponse.data.company_facts;
+        const metrics = metricsResponse.data.snapshot;
+        const priceData = priceResponse.data.snapshot;
+        
+        // Prepare data for LLM analysis
+        const analysisData = {
+          company: companyFacts,
+          metrics: metrics,
+          price: priceData,
+          analysisType: args.analysis_type,
+          context: args.context
+        };
+        
+        // Create messages for sampling
+        const messages = [
+          {
+            role: "user",
+            content: {
+              type: "text",
+              text: `Please provide a ${args.analysis_type} financial analysis for ${args.ticker}.
+
+**Company Data:**
+${JSON.stringify(companyFacts, null, 2)}
+
+**Financial Metrics:**
+${JSON.stringify(metrics, null, 2)}
+
+**Current Price Data:**
+${JSON.stringify(priceData, null, 2)}
+
+**Analysis Type:** ${args.analysis_type}
+${args.context ? `**Additional Context:** ${args.context}` : ''}
+
+Please provide detailed insights, key findings, and actionable recommendations.`
+            }
+          }
+        ];
+        
+        // Request LLM sampling
+        const analysis = await requestSampling(
+          server,
+          messages,
+          `You are an expert financial analyst. Provide comprehensive, accurate, and actionable financial analysis based on the provided data. Focus on ${args.analysis_type} analysis and include specific numbers, ratios, and concrete recommendations.`,
+          {
+            hints: [
+              { name: "claude-3-sonnet" },
+              { name: "gpt-4" }
+            ],
+            intelligencePriority: 0.95, // High intelligence for complex financial analysis
+            speedPriority: 0.4,
+            costPriority: 0.3
+          }
+        );
+        
+        // TRANSPORT LOG: Log the AI analysis result
+        console.log('\n🤖 [TRANSPORT] AI ANALYSIS RESULT FROM SAMPLING:');
+        console.log('Analysis Length:', analysis.length, 'characters');
+        console.log('Analysis Preview (first 300 chars):', analysis.substring(0, 300) + (analysis.length > 300 ? '...' : ''));
+        console.log('');
+        
+        // Prepare the final tool response
+        const toolResponse = {
+          content: [{
+            type: "text",
+            text: `AI Financial Analysis for ${args.ticker} (${args.analysis_type}):\n\n${analysis}\n\n---\nData Sources: Company Facts, Financial Metrics, Current Price Data\nAnalysis Generated: ${new Date().toISOString()}`
+          }]
+        };
+        
+        // TRANSPORT LOG: Final tool response being sent to client
+        console.log('📤 [TRANSPORT] FINAL TOOL RESPONSE BEING SENT TO CLIENT:');
+        console.log('=====================================');
+        console.log(JSON.stringify(toolResponse, null, 2));
+        console.log('=====================================\n');
+        
+        return toolResponse;
+        
+      } catch (error) {
+        throw new Error(`Failed to generate AI financial analysis: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
+    }
+    
+    case "ai_market_insights": {
+      const args = safeGetArgs(request.params.arguments, {
+        focus_area: 'overall_market',
+        tickers: [],
+        context: ''
+      });
+      
+      try {
+        let marketData = {};
+        
+        // Gather relevant market data based on focus area
+        if (args.tickers && args.tickers.length > 0) {
+          // Get data for specific tickers
+          const tickerData: { [key: string]: { facts: any; metrics: any } } = {};
+          for (const ticker of args.tickers.slice(0, 5)) { // Limit to 5 tickers
+            try {
+              const [factResp, metricsResp] = await Promise.all([
+                apiClient.get(`/company/facts?ticker=${ticker}`),
+                apiClient.get(`/financial-metrics/snapshot?ticker=${ticker}`)
+              ]);
+              tickerData[ticker] = {
+                facts: factResp.data.company_facts,
+                metrics: metricsResp.data.snapshot
+              };
+            } catch (error) {
+              const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+              logger.log(`Failed to get data for ${ticker}: ${errorMessage}`);
+            }
+          }
+          marketData = { specificTickers: tickerData };
+        } else {
+          // Get general market data
+          try {
+            const tickersResponse = await apiClient.get('/company/facts/tickers/');
+            const availableTickers = (tickersResponse.data.tickers || []).slice(0, 10);
+            marketData = { availableTickers, sampleSize: availableTickers.length };
+          } catch (error) {
+            marketData = { note: "General market data not available, providing analysis based on focus area" };
+          }
+        }
+        
+        // Create messages for sampling
+        const messages = [
+          {
+            role: "user",
+            content: {
+              type: "text",
+              text: `Please provide market insights and analysis focusing on: ${args.focus_area}
+
+**Market Data:**
+${JSON.stringify(marketData, null, 2)}
+
+**Focus Area:** ${args.focus_area}
+${args.context ? `**Additional Context:** ${args.context}` : ''}
+${args.tickers?.length ? `**Specific Tickers:** ${args.tickers.join(', ')}` : ''}
+
+Please provide comprehensive market analysis, trends, risks, and opportunities.`
+            }
+          }
+        ];
+        
+        // Request LLM sampling
+        const insights = await requestSampling(
+          server,
+          messages,
+          `You are an expert market analyst. Provide comprehensive market insights covering current trends, sector analysis, risk assessment, and investment opportunities. Focus on ${args.focus_area} and provide actionable recommendations.`,
+          {
+            hints: [
+              { name: "claude-3-sonnet" },
+              { name: "gpt-4" }
+            ],
+            intelligencePriority: 0.9,
+            speedPriority: 0.5,
+            costPriority: 0.4
+          }
+        );
+        
+        // TRANSPORT LOG: Log the AI insights result
+        console.log('\n🌍 [TRANSPORT] AI MARKET INSIGHTS RESULT FROM SAMPLING:');
+        console.log('Insights Length:', insights.length, 'characters');
+        console.log('Insights Preview (first 300 chars):', insights.substring(0, 300) + (insights.length > 300 ? '...' : ''));
+        console.log('');
+        
+        // Prepare the final tool response
+        const toolResponse = {
+          content: [{
+            type: "text",
+            text: `AI Market Insights (${args.focus_area}):\n\n${insights}\n\n---\nAnalysis Focus: ${args.focus_area}\nData Coverage: ${args.tickers?.length || 'General Market'}\nGenerated: ${new Date().toISOString()}`
+          }]
+        };
+        
+        // TRANSPORT LOG: Final tool response being sent to client
+        console.log('📤 [TRANSPORT] FINAL TOOL RESPONSE BEING SENT TO CLIENT:');
+        console.log('=====================================');
+        console.log(JSON.stringify(toolResponse, null, 2));
+        console.log('=====================================\n');
+        
+        return toolResponse;
+        
+      } catch (error) {
+        throw new Error(`Failed to generate AI market insights: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
+    }
+    
     default:
       throw new Error(`Unknown tool: ${request.params.name}`);
   }
 });
 
+// ================================================================================
+// RESOURCES IMPLEMENTATION - Following MCP 2025-06-18 Specification
+// ================================================================================
+
+/**
+ * List available financial resources for context
+ */
+server.setRequestHandler(ListResourcesRequestSchema, async () => {
+  logger.log('📋 [RESOURCES] Received list resources request');
+  
+  try {
+    // Get sample tickers for resources
+    const stockTickers = await fetchAvailableTickers(10);
+    const cryptoTickers = await fetchAvailableCryptoTickers(5);
+    
+    const resources = [
+      // Stock Company Resources
+      ...stockTickers.map(ticker => ({
+        uri: `financial://company/${ticker}`,
+        name: `${ticker} Company Profile`,
+        title: `📈 ${ticker} Company Information`,
+        description: `Complete company profile and facts for ${ticker}`,
+        mimeType: "application/json",
+        annotations: {
+          audience: ["assistant"],
+          priority: 0.7,
+          lastModified: new Date().toISOString()
+        }
+      })),
+      
+      // Crypto Resources
+      ...cryptoTickers.map(ticker => ({
+        uri: `financial://crypto/${ticker}`,
+        name: `${ticker} Crypto Data`,
+        title: `₿ ${ticker} Cryptocurrency`,
+        description: `Current price snapshot and data for ${ticker}`,
+        mimeType: "application/json",
+        annotations: {
+          audience: ["assistant"],
+          priority: 0.6,
+          lastModified: new Date().toISOString()
+        }
+      })),
+      
+      // Market Overview Resource
+      {
+        uri: "financial://market/overview",
+        name: "Market Overview",
+        title: "🌍 Current Market Overview",
+        description: "General market conditions and available tickers",
+        mimeType: "application/json",
+        annotations: {
+          audience: ["assistant"],
+          priority: 0.8,
+          lastModified: new Date().toISOString()
+        }
+      },
+      
+      // Financial Analysis Guide
+      {
+        uri: "financial://guide/analysis",
+        name: "Financial Analysis Guide",
+        title: "📊 Financial Analysis Guide",
+        description: "Guide to understanding financial metrics and analysis",
+        mimeType: "text/markdown",
+        annotations: {
+          audience: ["user", "assistant"],
+          priority: 0.9,
+          lastModified: new Date().toISOString()
+        }
+      }
+    ];
+    
+    logger.log(`📋 [RESOURCES] Returning ${resources.length} resources`);
+    return { resources };
+    
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    logger.error('❌ [RESOURCES] Error listing resources:', error);
+    throw new Error(`Failed to list resources: ${errorMessage}`);
+  }
+});
+
+/**
+ * Read specific financial resource content
+ */
+server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+  logger.log('📖 [RESOURCES] Received read resource request: ' + request.params.uri);
+  
+  try {
+    const uri = request.params.uri;
+    logger.log(`📖 [RESOURCES] Parsing URI: ${uri}`);
+    
+    const url = new URL(uri);
+    // For custom schemes like financial://company/A, the host is 'company' and pathname is '/A'
+    // So we need to combine host + pathname parts
+    const resourceType = url.host; // 'company', 'crypto', 'market', 'guide'
+    const pathParts = url.pathname.split('/').filter(Boolean); // ['A'] for '/A'
+    
+    logger.log(`📖 [RESOURCES] Resource type: "${resourceType}", Path parts: ${JSON.stringify(pathParts)}`);
+    
+    // Handle different resource types
+    if (resourceType === 'company' && pathParts.length >= 1) {
+      const ticker = pathParts[0]; // First path part is the ticker
+      
+      logger.log(`📈 [RESOURCES] Fetching company data for ${ticker}`);
+      
+      try {
+        // Get comprehensive company data
+        const [factsResponse, metricsResponse, priceResponse] = await Promise.all([
+          apiClient.get(`/company/facts?ticker=${ticker}`),
+          apiClient.get(`/financial-metrics/snapshot?ticker=${ticker}`),
+          apiClient.get(`/prices/snapshot?ticker=${ticker}`)
+        ]);
+        
+        const companyData = {
+          company_facts: factsResponse.data.company_facts,
+          financial_metrics: metricsResponse.data.snapshot,
+          current_price: priceResponse.data.snapshot,
+          last_updated: new Date().toISOString()
+        };
+        
+        return {
+          contents: [{
+            uri: uri,
+            name: `${ticker} Company Profile`,
+            title: `📈 ${ticker} Complete Company Data`,
+            mimeType: "application/json",
+            text: JSON.stringify(companyData, null, 2),
+            annotations: {
+              audience: ["assistant"],
+              priority: 0.8,
+              lastModified: new Date().toISOString()
+            }
+          }]
+        };
+      } catch (apiError) {
+        logger.error(`❌ [RESOURCES] API error for ticker ${ticker}:`, apiError);
+        logger.log(`📈 [RESOURCES] Returning error response for invalid ticker: ${ticker}`);
+        
+        // Return a helpful error message for invalid tickers
+        return {
+          contents: [{
+            uri: uri,
+            name: `${ticker} - Not Found`,
+            title: `❌ ${ticker} - Invalid Ticker Symbol`,
+            mimeType: "text/plain",
+            text: `The ticker symbol "${ticker}" is not valid or not available in our database. Please check the ticker symbol and try again.`,
+            annotations: {
+              audience: ["assistant"],
+              priority: 0.1,
+              lastModified: new Date().toISOString()
+            }
+          }]
+        };
+      }
+    }
+    
+    else if (resourceType === 'crypto' && pathParts.length >= 1) {
+      // Handle crypto tickers that may contain hyphens (e.g., 1INCH-USD)
+      const ticker = pathParts.join('/'); // Join all path parts for complex tickers
+      
+      logger.log(`₿ [RESOURCES] Fetching crypto data for ${ticker}`);
+      
+      try {
+        const response = await apiClient.get(`/crypto/prices/snapshot?ticker=${ticker}`);
+        const cryptoData = {
+          snapshot: response.data.snapshot,
+          last_updated: new Date().toISOString()
+        };
+        
+        return {
+          contents: [{
+            uri: uri,
+            name: `${ticker} Crypto Data`,
+            title: `₿ ${ticker} Cryptocurrency Data`,
+            mimeType: "application/json",
+            text: JSON.stringify(cryptoData, null, 2),
+            annotations: {
+              audience: ["assistant"],
+              priority: 0.7,
+              lastModified: new Date().toISOString()
+            }
+          }]
+        };
+      } catch (apiError) {
+        logger.error(`❌ [RESOURCES] API error for crypto ticker ${ticker}:`, apiError);
+        
+        // Return a helpful error message for invalid crypto tickers
+        return {
+          contents: [{
+            uri: uri,
+            name: `${ticker} - Not Found`,
+            title: `❌ ${ticker} - Invalid Crypto Symbol`,
+            mimeType: "text/plain",
+            text: `The cryptocurrency symbol "${ticker}" is not valid or not available in our database. Please check the symbol and try again.`,
+            annotations: {
+              audience: ["assistant"],
+              priority: 0.1,
+              lastModified: new Date().toISOString()
+            }
+          }]
+        };
+      }
+    }
+    
+    else if (resourceType === 'market' && pathParts[0] === 'overview') {
+      logger.log('🌍 [RESOURCES] Fetching market overview');
+      
+      const [stockTickers, cryptoTickers] = await Promise.all([
+        fetchAvailableTickers(20),
+        fetchAvailableCryptoTickers(10)
+      ]);
+      
+      const marketOverview = {
+        available_stocks: stockTickers,
+        available_crypto: cryptoTickers,
+        total_stocks: stockTickers.length,
+        total_crypto: cryptoTickers.length,
+        last_updated: new Date().toISOString(),
+        market_status: "Data available for analysis"
+      };
+      
+      return {
+        contents: [{
+          uri: uri,
+          name: "Market Overview",
+          title: "🌍 Current Market Overview",
+          mimeType: "application/json",
+          text: JSON.stringify(marketOverview, null, 2),
+          annotations: {
+            audience: ["assistant"],
+            priority: 0.9,
+            lastModified: new Date().toISOString()
+          }
+        }]
+      };
+    }
+    
+    else if (resourceType === 'guide' && pathParts[0] === 'analysis') {
+      logger.log('📊 [RESOURCES] Providing financial analysis guide');
+      
+      const analysisGuide = `# Financial Analysis Guide
+
+## Key Financial Metrics
+
+### Valuation Metrics
+- **P/E Ratio**: Price-to-Earnings ratio indicates valuation relative to earnings
+- **P/B Ratio**: Price-to-Book ratio shows valuation relative to book value
+- **EV/EBITDA**: Enterprise Value to EBITDA for operational valuation
+
+### Profitability Metrics
+- **Gross Margin**: (Revenue - COGS) / Revenue
+- **Operating Margin**: Operating Income / Revenue
+- **Net Margin**: Net Income / Revenue
+- **ROE**: Return on Equity measures shareholder returns
+- **ROA**: Return on Assets measures asset efficiency
+
+### Liquidity & Solvency
+- **Current Ratio**: Current Assets / Current Liabilities
+- **Quick Ratio**: (Current Assets - Inventory) / Current Liabilities
+- **Debt-to-Equity**: Total Debt / Total Equity
+
+### Growth Metrics
+- **Revenue Growth**: Year-over-year revenue change
+- **Earnings Growth**: Year-over-year earnings change
+- **Free Cash Flow Growth**: FCF trend analysis
+
+## Analysis Framework
+
+1. **Company Overview**: Industry, business model, competitive position
+2. **Financial Health**: Profitability, liquidity, solvency analysis
+3. **Growth Prospects**: Revenue trends, market opportunities
+4. **Valuation**: Relative and absolute valuation metrics
+5. **Risk Assessment**: Business, financial, and market risks
+
+## Using This Server's Tools
+
+- Use \`get_company_facts\` for basic company information
+- Use \`get_financial_metrics\` for key ratios and metrics
+- Use \`get_stock_prices\` for price and performance data
+- Use \`ai_financial_analysis\` for comprehensive AI-powered analysis
+
+Last Updated: ${new Date().toISOString()}`;
+      
+      return {
+        contents: [{
+          uri: uri,
+          name: "Financial Analysis Guide",
+          title: "📊 Financial Analysis Guide",
+          mimeType: "text/markdown",
+          text: analysisGuide,
+          annotations: {
+            audience: ["user", "assistant"],
+            priority: 1.0,
+            lastModified: new Date().toISOString()
+          }
+        }]
+      };
+    }
+    
+    else {
+      throw new Error(`Unknown resource URI format: ${uri}`);
+    }
+    
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    logger.error('❌ [RESOURCES] Error reading resource:', error);
+    throw new Error(`Failed to read resource: ${errorMessage}`);
+  }
+});
+
+/**
+ * List available resource templates
+ */
+server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => {
+  logger.log('📋 [RESOURCES] Received list resource templates request');
+  
+  return {
+    resourceTemplates: [
+      {
+        uriTemplate: "financial://company/{ticker}",
+        name: "Company Profile",
+        title: "📈 Company Profile",
+        description: "Complete company information including facts, metrics, and current price",
+        mimeType: "application/json",
+        annotations: {
+          audience: ["assistant"],
+          priority: 0.8
+        }
+      },
+      {
+        uriTemplate: "financial://crypto/{ticker}",
+        name: "Cryptocurrency Data",
+        title: "₿ Cryptocurrency Data", 
+        description: "Current cryptocurrency price snapshot and market data",
+        mimeType: "application/json",
+        annotations: {
+          audience: ["assistant"],
+          priority: 0.7
+        }
+      },
+      {
+        uriTemplate: "financial://market/overview",
+        name: "Market Overview",
+        title: "🌍 Market Overview",
+        description: "Current market conditions and available securities",
+        mimeType: "application/json",
+        annotations: {
+          audience: ["assistant"],
+          priority: 0.9
+        }
+      },
+      {
+        uriTemplate: "financial://guide/analysis",
+        name: "Analysis Guide",
+        title: "📊 Financial Analysis Guide",
+        description: "Comprehensive guide to financial analysis and metrics",
+        mimeType: "text/markdown",
+        annotations: {
+          audience: ["user", "assistant"],
+          priority: 1.0
+        }
+      }
+    ]
+  };
+});
+
 /**
  * List available prompts for financial analysis.
+ * Following MCP 2025-06-18 specification format.
  */
 server.setRequestHandler(ListPromptsRequestSchema, async () => {
   return {
     prompts: [
       {
-        name: "analyze_company",
-        description: "Get a comprehensive analysis of a company",
+        name: "analyze-stock",
+        title: "📈 Analyze Stock",
+        description: "Analyze a company's financial health, performance metrics, and market position with comprehensive data",
         arguments: [
           {
             name: "ticker",
-            description: "The ticker symbol of the company",
+            description: "The stock ticker symbol (e.g., AAPL, MSFT, GOOGL)",
             required: true
+          },
+          {
+            name: "analysis_depth",
+            description: "Level of analysis detail: basic, detailed, or comprehensive",
+            required: false
           }
         ]
       },
       {
-        name: "market_overview",
-        description: "Get a market overview with key metrics and trends",
-        arguments: []
-      },
-      {
-        name: "analyze_crypto",
-        description: "Get a comprehensive analysis of a cryptocurrency",
+        name: "market-overview",
+        title: "🌍 Market Overview",
+        description: "Get current market conditions, trends, and key economic indicators affecting the financial markets",
         arguments: [
           {
-            name: "ticker",
-            description: "The ticker symbol of the cryptocurrency (e.g., BTC-USD)",
-            required: true
+            name: "market_focus",
+            description: "Specific market focus: general, tech, healthcare, finance, energy, or all_sectors",
+            required: false
           }
         ]
       },
       {
-        name: "analyze_financial_statements",
-        description: "Get a comprehensive analysis of a company's financial statements",
+        name: "analyze-crypto", 
+        title: "₿ Analyze Crypto",
+        description: "Comprehensive analysis of cryptocurrency price trends, volatility, and market factors",
+        arguments: [
+          {
+            name: "crypto_ticker",
+            description: "The cryptocurrency ticker symbol (e.g., BTC-USD, ETH-USD, SOL-USD)",
+            required: true
+          },
+          {
+            name: "timeframe",
+            description: "Analysis timeframe: 7d, 30d, 90d, or 1y",
+            required: false
+          }
+        ]
+      },
+      {
+        name: "financial-statements",
+        title: "📊 Financial Statements",
+        description: "In-depth analysis of income statements, balance sheets, and cash flow statements",
         arguments: [
           {
             name: "ticker",
-            description: "The ticker symbol of the company",
+            description: "The stock ticker symbol for financial statement analysis",
             required: true
           },
           {
             name: "period",
-            description: "The time period for the data (annual, quarterly, ttm)",
+            description: "Reporting period: annual, quarterly, or ttm (trailing twelve months)",
+            required: false
+          },
+          {
+            name: "years_back",
+            description: "Number of years of historical data to include (1-5)",
+            required: false
+          }
+        ]
+      },
+      {
+        name: "investment-research",
+        title: "🔍 Investment Research",
+        description: "Complete investment research including valuation, risks, opportunities, and recommendations",
+        arguments: [
+          {
+            name: "ticker",
+            description: "The stock ticker symbol for investment research",
+            required: true
+          },
+          {
+            name: "investment_horizon",
+            description: "Investment timeframe: short_term, medium_term, or long_term",
+            required: false
+          }
+        ]
+      },
+      {
+        name: "compare-stocks",
+        title: "⚖️ Compare Stocks",
+        description: "Compare companies within the same sector or against market benchmarks",
+        arguments: [
+          {
+            name: "primary_ticker",
+            description: "Primary company ticker for comparison",
+            required: true
+          },
+          {
+            name: "comparison_tickers",
+            description: "Comma-separated list of peer company tickers to compare against",
+            required: false
+          },
+          {
+            name: "metrics_focus",
+            description: "Focus metrics: valuation, growth, profitability, or efficiency",
+            required: false
+          }
+        ]
+      },
+      {
+        name: "investment-committee-analysis",
+        title: "🏛️ Investment Committee Analysis",
+        description: "Comprehensive investment analysis for committee presentation including company evaluation, peer comparison, market context, and investment recommendation.",
+        arguments: [
+          {
+            name: "target_company",
+            description: "Primary company ticker for investment analysis (default: AAPL)",
+            required: false
+          },
+          {
+            name: "peer_companies",
+            description: "Comma-separated peer company tickers for comparison (default: MSFT,GOOGL)",
+            required: false
+          },
+          {
+            name: "investment_amount",
+            description: "Proposed investment amount in millions USD (default: 50)",
+            required: false
+          },
+          {
+            name: "time_horizon",
+            description: "Investment time horizon: short_term, medium_term, or long_term (default: medium_term)",
             required: false
           }
         ]
@@ -1783,362 +2672,948 @@ server.setRequestHandler(ListPromptsRequestSchema, async () => {
 
 /**
  * Handle prompt requests for financial analysis.
+ * Following MCP 2025-06-18 specification format.
  */
 server.setRequestHandler(GetPromptRequestSchema, async (request) => {
   logger.log('Received get prompt request: ' + JSON.stringify(request));
   
   const promptName = request.params.name;
+  const args = request.params.arguments || {};
   
-  if (promptName === "analyze_company") {
-    const ticker = request.params.arguments?.ticker || '';
-    if (!ticker) {
-      throw new Error("Ticker is required for company analysis");
-    }
-    
-    try {
-      const factResponse = await apiClient.get(`/company/facts?ticker=${ticker}`);
-      const companyFacts = factResponse.data.company_facts;
+  switch (promptName) {
+    case "analyze-stock": {
+      const ticker = args.ticker;
+      const analysisDepth = args.analysis_depth || 'detailed';
       
-      // This is hypothetical - assume we have price data endpoint
-      const priceResponse = await apiClient.get(`/market/prices?ticker=${ticker}&period=1m&limit=30`);
-      const priceData = priceResponse.data;
+      if (!ticker) {
+        throw new Error("Ticker is required for company analysis");
+      }
       
-      return {
-        messages: [
-          {
-            role: "user",
-            content: {
-              type: "text",
-              text: `Please analyze the following company:
-Ticker: ${ticker}
+      try {
+        // Get company facts
+        const factResponse = await apiClient.get(`/company/facts?ticker=${ticker}`);
+        const companyFacts = factResponse.data.company_facts;
+        
+        // Get financial metrics snapshot
+        const metricsResponse = await apiClient.get(`/financial-metrics/snapshot?ticker=${ticker}`);
+        const metricsSnapshot = metricsResponse.data.snapshot;
+        
+        // Get stock price snapshot
+        const priceResponse = await apiClient.get(`/prices/snapshot?ticker=${ticker}`);
+        const priceSnapshot = priceResponse.data.snapshot;
+        
+        return {
+          description: `Company analysis for ${ticker}`,
+          messages: [
+            {
+              role: "user",
+              content: {
+                type: "text",
+                text: `Perform a ${analysisDepth} financial analysis for ${ticker} based on the following data:
 
-Company Information:
+**Company Overview:**
 ${JSON.stringify(companyFacts, null, 2)}
 
-Recent Price History:
-${JSON.stringify(priceData, null, 2)}`
-            }
-          },
-          {
-            role: "user",
-            content: {
-              type: "text",
-              text: "Provide a comprehensive financial analysis of this company, including its strengths, weaknesses, opportunities, and risks based on this data."
-            }
-          }
-        ]
-      };
-    } catch (error) {
-      throw new Error(`Failed to analyze company: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-  } 
-  
-  if (promptName === "market_overview") {
-    // Hypothetical market overview data
-    try {
-      return {
-        messages: [
-          {
-            role: "user",
-            content: {
-              type: "text",
-              text: `Please provide a comprehensive market overview based on the latest data available.
-
-Include:
-1. Major market indices performance
-2. Sector performance
-3. Key economic indicators
-4. Current market trends
-5. Significant market events
-
-Please make this analysis concise yet thorough, highlighting the most important factors affecting the markets today.`
-            }
-          }
-        ]
-      };
-    } catch (error) {
-      throw new Error(`Failed to get market overview: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-  }
-  
-  if (promptName === "analyze_crypto") {
-    const ticker = request.params.arguments?.ticker || '';
-    if (!ticker) {
-      throw new Error("Ticker is required for cryptocurrency analysis");
-    }
-    
-    try {
-      // Get current snapshot
-      const snapshotResponse = await apiClient.get(`/crypto/prices/snapshot?ticker=${ticker}`);
-      const snapshot = snapshotResponse.data.snapshot;
-      
-      // Get historical prices - last 30 days
-      const today = new Date();
-      const thirtyDaysAgo = new Date();
-      thirtyDaysAgo.setDate(today.getDate() - 30);
-      
-      const formattedToday = today.toISOString().split('T')[0];
-      const formattedThirtyDaysAgo = thirtyDaysAgo.toISOString().split('T')[0];
-      
-      const pricesResponse = await apiClient.get(
-        `/crypto/prices/?ticker=${ticker}&interval=day&interval_multiplier=1&start_date=${formattedThirtyDaysAgo}&end_date=${formattedToday}&limit=30`
-      );
-      const priceData = pricesResponse.data.prices;
-      
-      return {
-        messages: [
-          {
-            role: "user",
-            content: {
-              type: "text",
-              text: `Please analyze the following cryptocurrency:
-Ticker: ${ticker}
-
-Current Snapshot:
-${JSON.stringify(snapshot, null, 2)}
-
-Last 30 Days Price History:
-${JSON.stringify(priceData, null, 2)}`
-            }
-          },
-          {
-            role: "user",
-            content: {
-              type: "text",
-              text: "Provide a comprehensive analysis of this cryptocurrency, including price trends, volatility, and major factors affecting its value. Compare its performance to major cryptocurrencies like Bitcoin and Ethereum where relevant."
-            }
-          }
-        ]
-      };
-    } catch (error) {
-      throw new Error(`Failed to analyze cryptocurrency: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-  }
-  
-  if (promptName === "analyze_financial_statements") {
-    const ticker = request.params.arguments?.ticker || '';
-    const period = request.params.arguments?.period || 'annual';
-    
-    if (!ticker) {
-      throw new Error("Ticker is required for financial statement analysis");
-    }
-    
-    try {
-      // Get company facts
-      const factResponse = await apiClient.get(`/company/facts?ticker=${ticker}`);
-      const companyFacts = factResponse.data.company_facts;
-      
-      // Get financial metrics
-      const metricsResponse = await apiClient.get(`/financial-metrics/snapshot?ticker=${ticker}`);
-      const metricsSnapshot = metricsResponse.data.snapshot;
-      
-      // Get financial statements
-      const financialsResponse = await apiClient.get(`/financials?ticker=${ticker}&period=${period}&limit=3`);
-      const financials = financialsResponse.data.financials;
-      
-      return {
-        messages: [
-          {
-            role: "user",
-            content: {
-              type: "text",
-              text: `Please analyze the financial statements and metrics for the following company:
-Ticker: ${ticker}
-
-Company Information:
-${JSON.stringify(companyFacts, null, 2)}
-
-Financial Metrics:
+**Current Financial Metrics:**
 ${JSON.stringify(metricsSnapshot, null, 2)}
 
-Financial Statements (${period}):
-${JSON.stringify(financials, null, 2)}`
+**Current Stock Price:**
+${JSON.stringify(priceSnapshot, null, 2)}`
+              }
+            },
+            {
+              role: "user", 
+              content: {
+                type: "text",
+                text: `Please provide a comprehensive analysis covering:
+
+1. **Company Overview & Business Model**
+2. **Financial Performance Analysis**
+   - Revenue trends and growth
+   - Profitability metrics
+   - Efficiency ratios
+3. **Financial Health Assessment**
+   - Liquidity position
+   - Debt levels and capital structure
+   - Cash flow analysis
+4. **Valuation Analysis**
+   - P/E, P/B, and other valuation multiples
+   - Comparison to industry averages
+5. **Investment Perspective**
+   - Strengths and competitive advantages
+   - Risks and concerns
+   - Overall investment thesis
+
+Format your analysis with clear sections and bullet points for key insights.`
+              }
             }
-          },
+          ]
+        };
+      } catch (error) {
+        throw new Error(`Failed to analyze company: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
+    }
+
+    case "market-overview": {
+      const marketFocus = args.market_focus || 'general';
+      
+      try {
+        // Get some sample tickers for market overview
+        const tickersResponse = await apiClient.get('/company/facts/tickers/');
+        const sampleTickers = (tickersResponse.data.tickers || []).slice(0, 5);
+        
+        return {
+          description: `Market overview with focus on ${marketFocus}`,
+          messages: [
+            {
+              role: "user",
+              content: {
+                type: "text",
+                text: `Provide a comprehensive market overview focusing on ${marketFocus === 'general' ? 'overall market conditions' : `the ${marketFocus} sector`}.
+
+**Available Market Data:**
+Sample major tickers: ${sampleTickers.join(', ')}
+
+Please analyze and discuss:`
+              }
+            },
+            {
+              role: "user",
+              content: {
+                type: "text", 
+                text: `**Market Analysis Framework:**
+
+1. **Current Market Environment**
+   - Overall market sentiment and direction
+   - Key market drivers and themes
+   - Economic indicators impact
+
+2. **Sector Performance** ${marketFocus !== 'general' ? `(Focus: ${marketFocus})` : ''}
+   - Leading and lagging sectors
+   - Sector rotation trends
+   - Industry-specific developments
+
+3. **Key Market Metrics**
+   - Volatility levels
+   - Trading volumes
+   - Market breadth indicators
+
+4. **Risk Factors & Opportunities**
+   - Geopolitical influences
+   - Monetary policy impacts
+   - Emerging trends and opportunities
+
+5. **Outlook & Recommendations**
+   - Short-term market direction
+   - Investment themes to watch
+   - Risk management considerations
+
+Please provide specific insights and actionable information for investors.`
+              }
+            }
+          ]
+        };
+      } catch (error) {
+        throw new Error(`Failed to get market overview: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
+    }
+
+    case "analyze-crypto": {
+      const cryptoTicker = args.crypto_ticker;
+      const timeframe = args.timeframe || '30d';
+      
+      if (!cryptoTicker) {
+        throw new Error("Crypto ticker is required for cryptocurrency analysis");
+      }
+      
+      try {
+        // Get current snapshot
+        const snapshotResponse = await apiClient.get(`/crypto/prices/snapshot?ticker=${cryptoTicker}`);
+        const snapshot = snapshotResponse.data.snapshot;
+        
+        // Calculate date range based on timeframe
+        const today = new Date();
+        const daysBack = timeframe === '7d' ? 7 : timeframe === '30d' ? 30 : timeframe === '90d' ? 90 : 365;
+        const startDate = new Date();
+        startDate.setDate(today.getDate() - daysBack);
+        
+        const formattedToday = today.toISOString().split('T')[0];
+        const formattedStartDate = startDate.toISOString().split('T')[0];
+        
+        // Get historical prices
+        const pricesResponse = await apiClient.get(
+          `/crypto/prices/?ticker=${cryptoTicker}&interval=day&interval_multiplier=1&start_date=${formattedStartDate}&end_date=${formattedToday}&limit=1000`
+        );
+        const priceData = pricesResponse.data.prices;
+        
+        return {
+          description: `Cryptocurrency analysis for ${cryptoTicker} over ${timeframe}`,
+          messages: [
+            {
+              role: "user",
+              content: {
+                type: "text",
+                text: `Analyze ${cryptoTicker} cryptocurrency over the ${timeframe} timeframe:
+
+**Current Market Data:**
+${JSON.stringify(snapshot, null, 2)}
+
+**Historical Price Data (${timeframe}):**
+${JSON.stringify(priceData, null, 2)}`
+              }
+            },
+            {
+              role: "user",
+              content: {
+                type: "text",
+                text: `Please provide a comprehensive cryptocurrency analysis including:
+
+1. **Price Performance Analysis**
+   - Price trends and momentum over ${timeframe}
+   - Key support and resistance levels
+   - Volatility assessment
+
+2. **Technical Analysis**
+   - Chart patterns and technical indicators
+   - Trading volume analysis
+   - Momentum indicators
+
+3. **Market Context**
+   - Performance vs Bitcoin and Ethereum
+   - Correlation with traditional markets
+   - Market cap ranking and dominance
+
+4. **Fundamental Factors**
+   - Technology and use case analysis
+   - Adoption metrics and partnerships
+   - Regulatory environment impact
+
+5. **Risk Assessment**
+   - Volatility risks
+   - Liquidity considerations
+   - Regulatory and technical risks
+
+6. **Investment Outlook**
+   - Short and medium-term price outlook
+   - Key catalysts to watch
+   - Risk/reward assessment
+
+Focus on actionable insights for crypto investors and traders.`
+              }
+            }
+          ]
+        };
+      } catch (error) {
+        throw new Error(`Failed to analyze cryptocurrency: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
+    }
+
+    case "financial-statements": {
+      const ticker = args.ticker;
+      const period = args.period || 'annual';
+      const yearsBack = parseInt(args.years_back) || 3;
+      
+      if (!ticker) {
+        throw new Error("Ticker is required for financial statements analysis");
+      }
+      
+      try {
+        // Get company facts
+        const factResponse = await apiClient.get(`/company/facts?ticker=${ticker}`);
+        const companyFacts = factResponse.data.company_facts;
+        
+        // Get all financial statements
+        const financialsResponse = await apiClient.get(`/financials?ticker=${ticker}&period=${period}&limit=${yearsBack}`);
+        const financials = financialsResponse.data.financials;
+        
+        // Get financial metrics
+        const metricsResponse = await apiClient.get(`/financial-metrics?ticker=${ticker}&period=${period}&limit=${yearsBack}`);
+        const metrics = metricsResponse.data.financial_metrics;
+        
+        return {
+          description: `Financial statements analysis for ${ticker} (${period}, ${yearsBack} years)`,
+          messages: [
+            {
+              role: "user",
+              content: {
+                type: "text",
+                text: `Analyze the financial statements for ${ticker} over the past ${yearsBack} years (${period} periods):
+
+**Company Information:**
+${JSON.stringify(companyFacts, null, 2)}
+
+**Financial Statements (${period}):**
+${JSON.stringify(financials, null, 2)}
+
+**Financial Metrics (${period}):**
+${JSON.stringify(metrics, null, 2)}`
+              }
+            },
+            {
+              role: "user",
+              content: {
+                type: "text",
+                text: `Please provide an in-depth financial statements analysis covering:
+
+**1. Income Statement Analysis**
+- Revenue growth trends and sustainability
+- Gross, operating, and net margin analysis
+- Expense management and cost structure
+- Earnings quality and recurring vs. non-recurring items
+
+**2. Balance Sheet Analysis**
+- Asset composition and quality
+- Capital structure and debt analysis
+- Working capital management
+- Shareholder equity trends
+
+**3. Cash Flow Statement Analysis**
+- Operating cash flow generation and quality
+- Capital allocation decisions
+- Free cash flow trends
+- Cash flow coverage ratios
+
+**4. Financial Ratios & Metrics**
+- Profitability ratios (ROE, ROA, ROIC)
+- Efficiency ratios (asset turnover, inventory turnover)
+- Liquidity ratios (current ratio, quick ratio)
+- Leverage ratios (debt-to-equity, interest coverage)
+
+**5. Trend Analysis & Red Flags**
+- Multi-year trend identification
+- Potential accounting red flags
+- Seasonal or cyclical patterns
+- Management guidance vs. actual performance
+
+**6. Financial Health Assessment**
+- Overall financial strength rating
+- Key areas of concern or improvement
+- Comparison to industry benchmarks
+- Future outlook based on financial trends
+
+Provide specific numbers, percentages, and actionable insights throughout the analysis.`
+              }
+            }
+          ]
+        };
+      } catch (error) {
+        throw new Error(`Failed to analyze financial statements: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
+    }
+
+    case "investment-research": {
+      const ticker = args.ticker;
+      const investmentHorizon = args.investment_horizon || 'medium_term';
+      
+      if (!ticker) {
+        throw new Error("Ticker is required for investment research");
+      }
+      
+      try {
+        // Get comprehensive data
+        const [factResponse, metricsResponse, priceResponse, newsResponse] = await Promise.all([
+          apiClient.get(`/company/facts?ticker=${ticker}`),
+          apiClient.get(`/financial-metrics/snapshot?ticker=${ticker}`),
+          apiClient.get(`/prices/snapshot?ticker=${ticker}`),
+          apiClient.get(`/news?ticker=${ticker}&limit=10`)
+        ]);
+        
+        const companyFacts = factResponse.data.company_facts;
+        const metrics = metricsResponse.data.snapshot;
+        const priceData = priceResponse.data.snapshot;
+        const news = newsResponse.data.news;
+        
+        return {
+          description: `Investment research report for ${ticker} (${investmentHorizon})`,
+          messages: [
+            {
+              role: "user",
+              content: {
+                type: "text",
+                text: `Prepare a comprehensive investment research report for ${ticker} with a ${investmentHorizon.replace('_', ' ')} investment horizon:
+
+**Company Data:**
+${JSON.stringify(companyFacts, null, 2)}
+
+**Financial Metrics:**
+${JSON.stringify(metrics, null, 2)}
+
+**Current Price Data:**
+${JSON.stringify(priceData, null, 2)}
+
+**Recent News:**
+${JSON.stringify(news, null, 2)}`
+              }
+            },
+            {
+              role: "user",
+              content: {
+                type: "text",
+                text: `Please provide a complete investment research report structured as follows:
+
+**EXECUTIVE SUMMARY**
+- Investment recommendation (Buy/Hold/Sell)
+- Target price and expected return
+- Key investment thesis points
+- Major risks and catalysts
+
+**COMPANY ANALYSIS**
+- Business model and competitive position
+- Market opportunity and industry dynamics
+- Management quality and strategy
+- ESG considerations
+
+**FINANCIAL ANALYSIS**
+- Revenue and earnings growth prospects
+- Margin trends and profitability
+- Balance sheet strength and capital allocation
+- Cash generation and dividend policy
+
+**VALUATION ANALYSIS**
+- Multiple-based valuation (P/E, EV/EBITDA, P/B)
+- DCF analysis considerations
+- Peer comparison and industry multiples
+- Historical valuation ranges
+
+**RISK ASSESSMENT**
+- Company-specific risks
+- Industry and market risks
+- Regulatory and competitive threats
+- Scenario analysis (bull/base/bear cases)
+
+**INVESTMENT RECOMMENDATION**
+- ${investmentHorizon.replace('_', ' ')} outlook and price target
+- Portfolio fit and position sizing
+- Key milestones and catalysts to monitor
+- Exit strategy considerations
+
+**APPENDIX**
+- Key financial metrics summary
+- Peer comparison table
+- Recent news impact analysis
+
+Tailor the analysis depth and focus to the ${investmentHorizon.replace('_', ' ')} investment timeframe.`
+              }
+            }
+          ]
+        };
+      } catch (error) {
+        throw new Error(`Failed to generate investment research: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
+    }
+
+    case "compare-stocks": {
+      const primaryTicker = args.primary_ticker;
+      const comparisonTickers = args.comparison_tickers ? args.comparison_tickers.split(',').map(t => t.trim()) : [];
+      const metricsFocus = args.metrics_focus || 'comprehensive';
+      
+      if (!primaryTicker) {
+        throw new Error("Primary ticker is required for sector comparison");
+      }
+      
+      try {
+        // Get data for primary company
+        const primaryFactsResponse = await apiClient.get(`/company/facts?ticker=${primaryTicker}`);
+        const primaryFacts = primaryFactsResponse.data.company_facts;
+        
+        const primaryMetricsResponse = await apiClient.get(`/financial-metrics/snapshot?ticker=${primaryTicker}`);
+        const primaryMetrics = primaryMetricsResponse.data.snapshot;
+        
+        // Get comparison data if tickers provided
+        let comparisonData: { [key: string]: { facts: any; metrics: any } } = {};
+        if (comparisonTickers.length > 0) {
+          for (const ticker of comparisonTickers.slice(0, 5)) { // Limit to 5 peers
+            try {
+              const [factsResp, metricsResp] = await Promise.all([
+                apiClient.get(`/company/facts?ticker=${ticker}`),
+                apiClient.get(`/financial-metrics/snapshot?ticker=${ticker}`)
+              ]);
+              comparisonData[ticker] = {
+                facts: factsResp.data.company_facts,
+                metrics: metricsResp.data.snapshot
+              };
+            } catch (error) {
+              const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+              logger.log(`Failed to get data for ${ticker}: ${errorMessage}`);
+            }
+          }
+        }
+        
+        return {
+          description: `Sector comparison for ${primaryTicker} focusing on ${metricsFocus}`,
+          messages: [
+            {
+              role: "user",
+              content: {
+                type: "text",
+                text: `Perform a sector and peer comparison analysis for ${primaryTicker} with focus on ${metricsFocus} metrics:
+
+**Primary Company (${primaryTicker}):**
+Company Facts: ${JSON.stringify(primaryFacts, null, 2)}
+Financial Metrics: ${JSON.stringify(primaryMetrics, null, 2)}
+
+**Peer Comparison Data:**
+${Object.keys(comparisonData).length > 0 ? JSON.stringify(comparisonData, null, 2) : 'No peer data provided - please analyze against industry averages'}`
+              }
+            },
+            {
+              role: "user",
+              content: {
+                type: "text",
+                text: `Please provide a comprehensive sector and peer comparison analysis:
+
+**1. SECTOR OVERVIEW**
+- Industry classification and characteristics
+- Sector growth trends and dynamics
+- Key industry drivers and challenges
+- Regulatory environment
+
+**2. PEER GROUP ANALYSIS** ${comparisonTickers.length > 0 ? `(vs ${comparisonTickers.join(', ')})` : '(vs industry averages)'}
+- Market position and size comparison
+- Business model similarities and differences
+- Geographic and product diversification
+
+**3. FINANCIAL METRICS COMPARISON** (Focus: ${metricsFocus})
+${metricsFocus === 'valuation' || metricsFocus === 'comprehensive' ? `
+**Valuation Metrics:**
+- P/E, P/B, EV/EBITDA ratios
+- PEG ratio and growth-adjusted valuations
+- Price-to-sales and enterprise value multiples
+- Dividend yield comparison` : ''}
+
+${metricsFocus === 'growth' || metricsFocus === 'comprehensive' ? `
+**Growth Metrics:**
+- Revenue growth rates (1Y, 3Y, 5Y)
+- Earnings growth sustainability
+- Market share trends
+- Geographic expansion rates` : ''}
+
+${metricsFocus === 'profitability' || metricsFocus === 'comprehensive' ? `
+**Profitability Metrics:**
+- Gross, operating, and net margins
+- Return on equity (ROE) and assets (ROA)
+- Return on invested capital (ROIC)
+- Profit margin stability` : ''}
+
+${metricsFocus === 'efficiency' || metricsFocus === 'comprehensive' ? `
+**Efficiency Metrics:**
+- Asset turnover ratios
+- Working capital management
+- Inventory and receivables turnover
+- Capital allocation efficiency` : ''}
+
+**4. COMPETITIVE POSITIONING**
+- Relative strengths and weaknesses
+- Competitive advantages and moats
+- Market share and competitive threats
+- Innovation and R&D capabilities
+
+**5. INVESTMENT IMPLICATIONS**
+- Relative valuation attractiveness
+- Risk-adjusted return potential
+- Sector rotation considerations
+- Best-in-class investment picks
+
+**6. KEY TAKEAWAYS**
+- ${primaryTicker}'s ranking within peer group
+- Most attractive investment opportunities
+- Key risks and red flags by company
+- Sector outlook and recommendations
+
+Provide specific numerical comparisons and rank companies where possible.`
+              }
+            }
+          ]
+        };
+      } catch (error) {
+        throw new Error(`Failed to generate sector comparison: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
+    }
+
+    case "investment-committee-analysis": {
+      const targetCompany = args.target_company || 'AAPL';
+      const peerCompanies = (args.peer_companies || 'MSFT,GOOGL').split(',').map(t => t.trim());
+      const investmentAmount = args.investment_amount || '50';
+      const timeHorizon = args.time_horizon || 'medium_term';
+      
+      logger.log(`🏛️ [INVESTMENT] Creating investment committee analysis for ${targetCompany}`);
+      
+      const analysisPrompt = `# 🏛️ INVESTMENT COMMITTEE ANALYSIS
+
+You are preparing a comprehensive investment analysis for the Investment Committee meeting. The committee is considering a ${investmentAmount}M investment in **${targetCompany}** with a **${timeHorizon}** investment horizon.
+
+## 📊 REQUIRED ANALYSIS WORKFLOW
+
+### **PHASE 1: TARGET COMPANY DEEP DIVE**
+Conduct thorough analysis of **${targetCompany}**:
+
+1. **Company Fundamentals:**
+   - Use \`get_company_facts\` to gather company background, business model, and key metrics
+   - Use \`get_financial_metrics\` to analyze profitability, valuation, and financial health ratios
+   - Use \`get_prices_snapshot\` to assess current market valuation and recent performance
+
+2. **Access Company Resource:**
+   - Read \`financial://company/${targetCompany}\` resource for comprehensive company data context
+
+### **PHASE 2: COMPETITIVE ANALYSIS**
+Compare **${targetCompany}** against key peers **${peerCompanies.join(', ')}**:
+
+${peerCompanies.map(peer => `
+3. **${peer} Analysis:**
+   - Use \`get_company_facts\` for ${peer} company information
+   - Use \`get_financial_metrics\` for ${peer} financial ratios
+   - Read \`financial://company/${peer}\` resource for additional context`).join('')}
+
+### **PHASE 3: MARKET CONTEXT**
+Assess broader market conditions:
+
+4. **Market Overview:**
+   - Use \`get_market_overview\` to understand current market conditions
+   - Read \`financial://market/overview\` resource for market trends
+   - Read \`financial://guide/analysis\` for analytical framework reference
+
+### **PHASE 4: AI-POWERED INVESTMENT ANALYSIS**
+Generate professional investment recommendation:
+
+5. **Investment Thesis:**
+   - Use \`ai_financial_analysis\` with ticker "${targetCompany}"
+   - Set analysis_type to "investment_thesis" 
+   - Include context: "Investment Committee analysis for ${investmentAmount}M ${timeHorizon} investment"
+
+### **PHASE 5: RISK ASSESSMENT**
+Evaluate investment risks and opportunities:
+
+6. **Risk Analysis:**
+   - Use \`ai_financial_analysis\` with ticker "${targetCompany}"
+   - Set analysis_type to "risk_assessment"
+   - Include context: "${timeHorizon} investment horizon risk evaluation"
+
+## 🎯 INVESTMENT COMMITTEE DELIVERABLES
+
+Your final analysis must include:
+
+### **EXECUTIVE SUMMARY**
+- Investment recommendation (BUY/HOLD/SELL)
+- Target price and expected returns
+- Key investment thesis points
+- Major risks and mitigations
+
+### **FINANCIAL HIGHLIGHTS**
+- Revenue growth trends and projections
+- Profitability metrics vs peers
+- Balance sheet strength
+- Cash flow generation capacity
+
+### **COMPETITIVE POSITIONING**
+- Market share and competitive advantages
+- Peer comparison on key metrics
+- Industry trends and positioning
+
+### **RISK-RETURN PROFILE**
+- Expected returns for ${timeHorizon} horizon
+- Downside protection and risk factors
+- Portfolio fit and diversification benefits
+
+### **IMPLEMENTATION STRATEGY**
+- Recommended position sizing (${investmentAmount}M)
+- Entry strategy and timing
+- Exit criteria and milestones
+- Monitoring framework
+
+## 💼 COMMITTEE CONTEXT
+
+The Investment Committee expects:
+- **Data-driven analysis** with current market data
+- **Peer-relative assessment** showing competitive positioning
+- **Clear investment thesis** with supporting evidence
+- **Risk-adjusted returns** appropriate for ${timeHorizon} horizon
+- **Actionable recommendations** with specific next steps
+
+**BEGIN ANALYSIS** - Execute all phases systematically to build a comprehensive investment case for the committee.`;
+
+      return {
+        description: `🏛️ Investment Committee Analysis: ${investmentAmount}M ${timeHorizon} investment in ${targetCompany} vs peers ${peerCompanies.join(', ')}`,
+        messages: [
           {
             role: "user",
             content: {
               type: "text",
-              text: `Based on these financial statements and metrics, please provide:
-
-1. A summary of the company's financial health
-2. Analysis of revenue trends, profitability, and growth
-3. Assessment of balance sheet strength and liquidity
-4. Cash flow analysis
-5. Key financial ratios interpretation
-6. Noteworthy aspects of the financial statements
-7. Areas of concern or potential red flags
-8. Overall financial outlook`
+              text: analysisPrompt
             }
           }
         ]
       };
-    } catch (error) {
-      throw new Error(`Failed to analyze financial statements: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+
+    default:
+      throw new Error(`Unknown prompt: ${promptName}`);
+  }
+});
+
+
+/**
+ * Handle completion requests for prompt arguments.
+ * Provides autocomplete suggestions for ticker symbols and other arguments.
+ */
+server.setRequestHandler(CompleteRequestSchema, async (request) => {
+  logger.log('Received completion request: ' + JSON.stringify(request));
+  
+  const { ref, argument } = request.params;
+  
+  // Handle completion for prompt arguments
+  if (ref.type === "ref/prompt") {
+    const promptName = ref.name;
+    
+    switch (promptName) {
+      case "analyze-stock":
+      case "financial-statements":
+      case "investment-research":
+      case "compare-stocks":
+        if (argument?.name === "ticker" || argument?.name === "primary_ticker") {
+          try {
+            // Get available tickers for completion
+            const response = await apiClient.get('/company/facts/tickers/');
+            const allTickers = response.data.tickers || [];
+            
+            // Filter tickers based on current input
+            const currentInput = argument?.value || '';
+            const matchingTickers = allTickers
+              .filter((ticker: string) => 
+                ticker.toLowerCase().startsWith(currentInput.toLowerCase())
+              )
+              .slice(0, 20) // Limit to 20 suggestions
+              .map((ticker: string) => ({
+                values: [ticker],
+                description: `Stock ticker: ${ticker}`
+              }));
+            
+            return {
+              completion: {
+                values: matchingTickers.length > 0 ? matchingTickers : [
+                  { values: ["AAPL"], description: "Apple Inc." },
+                  { values: ["MSFT"], description: "Microsoft Corporation" },
+                  { values: ["GOOGL"], description: "Alphabet Inc." },
+                  { values: ["AMZN"], description: "Amazon.com Inc." },
+                  { values: ["TSLA"], description: "Tesla Inc." }
+                ],
+                total: matchingTickers.length,
+                hasMore: allTickers.length > 20
+              }
+            };
+          } catch (error) {
+            // Fallback to common tickers if API fails
+            return {
+              completion: {
+                values: [
+                  { values: ["AAPL"], description: "Apple Inc." },
+                  { values: ["MSFT"], description: "Microsoft Corporation" },
+                  { values: ["GOOGL"], description: "Alphabet Inc." },
+                  { values: ["AMZN"], description: "Amazon.com Inc." },
+                  { values: ["TSLA"], description: "Tesla Inc." },
+                  { values: ["META"], description: "Meta Platforms Inc." },
+                  { values: ["NVDA"], description: "NVIDIA Corporation" },
+                  { values: ["JPM"], description: "JPMorgan Chase & Co." },
+                  { values: ["V"], description: "Visa Inc." },
+                  { values: ["JNJ"], description: "Johnson & Johnson" }
+                ],
+                total: 10,
+                hasMore: false
+              }
+            };
+          }
+        }
+        
+        if (argument?.name === "comparison_tickers") {
+          try {
+            const response = await apiClient.get('/company/facts/tickers/');
+            const allTickers = response.data.tickers || [];
+            
+            const currentInput = argument?.value || '';
+            const lastTicker = currentInput.split(',').pop()?.trim() || '';
+            
+            const matchingTickers = allTickers
+              .filter((ticker: string) => 
+                ticker.toLowerCase().startsWith(lastTicker.toLowerCase())
+              )
+              .slice(0, 10)
+              .map((ticker: string) => ({
+                values: [ticker],
+                description: `Add peer: ${ticker}`
+              }));
+            
+            return {
+              completion: {
+                values: matchingTickers,
+                total: matchingTickers.length,
+                hasMore: false
+              }
+            };
+          } catch (error) {
+            return { completion: { values: [], total: 0, hasMore: false } };
+          }
+        }
+        
+        if (argument?.name === "analysis_depth") {
+          return {
+            completion: {
+              values: [
+                { values: ["basic"], description: "Basic financial overview" },
+                { values: ["detailed"], description: "Detailed financial analysis" },
+                { values: ["comprehensive"], description: "Comprehensive deep-dive analysis" }
+              ],
+              total: 3,
+              hasMore: false
+            }
+          };
+        }
+        
+        if (argument?.name === "period") {
+          return {
+            completion: {
+              values: [
+                { values: ["annual"], description: "Annual financial data" },
+                { values: ["quarterly"], description: "Quarterly financial data" },
+                { values: ["ttm"], description: "Trailing twelve months data" }
+              ],
+              total: 3,
+              hasMore: false
+            }
+          };
+        }
+        
+        if (argument?.name === "investment_horizon") {
+          return {
+            completion: {
+              values: [
+                { values: ["short_term"], description: "Short-term (< 1 year) investment horizon" },
+                { values: ["medium_term"], description: "Medium-term (1-5 years) investment horizon" },
+                { values: ["long_term"], description: "Long-term (5+ years) investment horizon" }
+              ],
+              total: 3,
+              hasMore: false
+            }
+          };
+        }
+        
+        if (argument?.name === "metrics_focus") {
+          return {
+            completion: {
+              values: [
+                { values: ["valuation"], description: "Focus on valuation metrics (P/E, P/B, EV/EBITDA)" },
+                { values: ["growth"], description: "Focus on growth metrics (revenue, earnings growth)" },
+                { values: ["profitability"], description: "Focus on profitability metrics (margins, ROE, ROA)" },
+                { values: ["efficiency"], description: "Focus on efficiency metrics (turnover ratios)" },
+                { values: ["comprehensive"], description: "Comprehensive analysis of all metrics" }
+              ],
+              total: 5,
+              hasMore: false
+            }
+          };
+        }
+        break;
+        
+      case "analyze-crypto":
+        if (argument?.name === "crypto_ticker") {
+          try {
+            const response = await apiClient.get('/crypto/prices/tickers/');
+            const allCryptoTickers = response.data.tickers || [];
+            
+            const currentInput = argument?.value || '';
+            const matchingTickers = allCryptoTickers
+              .filter((ticker: string) => 
+                ticker.toLowerCase().startsWith(currentInput.toLowerCase())
+              )
+              .slice(0, 15)
+              .map((ticker: string) => ({
+                values: [ticker],
+                description: `Cryptocurrency: ${ticker}`
+              }));
+            
+            return {
+              completion: {
+                values: matchingTickers.length > 0 ? matchingTickers : [
+                  { values: ["BTC-USD"], description: "Bitcoin" },
+                  { values: ["ETH-USD"], description: "Ethereum" },
+                  { values: ["SOL-USD"], description: "Solana" },
+                  { values: ["ADA-USD"], description: "Cardano" },
+                  { values: ["DOGE-USD"], description: "Dogecoin" }
+                ],
+                total: matchingTickers.length,
+                hasMore: allCryptoTickers.length > 15
+              }
+            };
+          } catch (error) {
+            return {
+              completion: {
+                values: [
+                  { values: ["BTC-USD"], description: "Bitcoin" },
+                  { values: ["ETH-USD"], description: "Ethereum" },
+                  { values: ["SOL-USD"], description: "Solana" },
+                  { values: ["ADA-USD"], description: "Cardano" },
+                  { values: ["DOGE-USD"], description: "Dogecoin" },
+                  { values: ["XRP-USD"], description: "XRP" },
+                  { values: ["MATIC-USD"], description: "Polygon" },
+                  { values: ["AVAX-USD"], description: "Avalanche" }
+                ],
+                total: 8,
+                hasMore: false
+              }
+            };
+          }
+        }
+        
+        if (argument?.name === "timeframe") {
+          return {
+            completion: {
+              values: [
+                { values: ["7d"], description: "7 days of price history" },
+                { values: ["30d"], description: "30 days of price history" },
+                { values: ["90d"], description: "90 days of price history" },
+                { values: ["1y"], description: "1 year of price history" }
+              ],
+              total: 4,
+              hasMore: false
+            }
+          };
+        }
+        break;
+        
+      case "market-overview":
+        if (argument?.name === "market_focus") {
+          return {
+            completion: {
+              values: [
+                { values: ["general"], description: "General market overview" },
+                { values: ["tech"], description: "Technology sector focus" },
+                { values: ["healthcare"], description: "Healthcare sector focus" },
+                { values: ["finance"], description: "Financial sector focus" },
+                { values: ["energy"], description: "Energy sector focus" },
+                { values: ["all_sectors"], description: "All sectors analysis" }
+              ],
+              total: 6,
+              hasMore: false
+            }
+          };
+        }
+        break;
     }
   }
   
-  throw new Error(`Unknown prompt: ${promptName}`);
+  // Default empty completion
+  return {
+    completion: {
+      values: [],
+      total: 0,
+      hasMore: false
+    }
+  };
 });
 
 /**
  * List templates for constructing financial data URIs.
  */
-server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => {
-  return {
-    resourceTemplates: [
-      {
-        name: "company_profile",
-        description: "Template for viewing a company's profile",
-        uriTemplate: "financial://company/{ticker}",
-        text: `This template is used to view a company's profile information.
-
-The URI format follows this pattern:
-financial://company/{ticker}
-
-For example:
-financial://company/AAPL
-
-This will return information about the company including:
-- Company name and ticker
-- Industry and sector classification
-- Market capitalization
-- Number of employees
-- Location
-- SEC filings URL
-- Website URL
-and more.`
-      },
-      {
-        name: "stock_prices",
-        description: "Template for viewing stock price history",
-        uriTemplate: "financial://prices/{ticker}/{period}",
-        text: `This template is used to view historical stock prices.
-
-The URI format follows this pattern:
-financial://prices/{ticker}/{period}
-
-For example:
-financial://prices/AAPL/1m
-
-Period options:
-- 1d: One day
-- 1w: One week
-- 1m: One month
-- 3m: Three months
-- 6m: Six months
-- 1y: One year
-- 5y: Five years
-- max: Maximum available history`
-      },
-      {
-        name: "crypto_profile",
-        description: "Template for viewing cryptocurrency data",
-        uriTemplate: "financial://crypto/{ticker}",
-        text: `This template is used to view current cryptocurrency price data.
-
-The URI format follows this pattern:
-financial://crypto/{ticker}
-
-For example:
-financial://crypto/BTC-USD
-
-This will return the current price snapshot including:
-- Current price
-- Day change
-- Day change percentage
-- Latest time stamp`
-      },
-      {
-        name: "crypto_prices",
-        description: "Template for viewing cryptocurrency price history",
-        uriTemplate: "financial://crypto/prices/{ticker}/{interval}/{interval_multiplier}",
-        text: `This template is used to view historical cryptocurrency prices.
-
-The URI format follows this pattern:
-financial://crypto/prices/{ticker}/{interval}/{interval_multiplier}
-
-For example:
-financial://crypto/prices/BTC-USD/day/1
-
-Interval options:
-- minute: Minutes
-- day: Days
-- week: Weeks
-- month: Months
-- year: Years
-
-The interval_multiplier specifies how many units of the interval (e.g., 5 for every 5 minutes).`
-      },
-      {
-        name: "earnings_press_releases",
-        description: "Template for viewing company earnings press releases",
-        uriTemplate: "financial://earnings/{ticker}/press-releases",
-        text: `This template is used to view earnings press releases for a company.
-
-The URI format follows this pattern:
-financial://earnings/{ticker}/press-releases
-
-For example:
-financial://earnings/AAPL/press-releases
-
-This will return a list of press releases including:
-- Title
-- URL
-- Date
-- Text content`
-      },
-      {
-        name: "financial_metrics",
-        description: "Template for viewing company financial metrics",
-        uriTemplate: "financial://metrics/{ticker}/{period}",
-        text: `This template is used to view financial metrics for a company.
-
-The URI format follows this pattern:
-financial://metrics/{ticker}/{period}
-
-For example:
-financial://metrics/AAPL/annual
-
-Period options:
-- annual: Annual metrics
-- quarterly: Quarterly metrics
-- ttm: Trailing twelve months
-
-This will return financial metrics including:
-- Valuation metrics (P/E, P/B, EV/EBITDA)
-- Profitability metrics (margins, ROE, ROA)
-- Efficiency, Liquidity, and Leverage metrics
-- Growth metrics and per-share figures`
-      },
-      {
-        name: "financial_statements",
-        description: "Template for viewing company financial statements",
-        uriTemplate: "financial://financials/{ticker}/{statement_type}/{period}",
-        text: `This template is used to view financial statements for a company.
-
-The URI format follows this pattern:
-financial://financials/{ticker}/{statement_type}/{period}
-
-For example:
-financial://financials/AAPL/income/annual
-
-Statement type options:
-- income: Income statements
-- balance: Balance sheets
-- cash-flow: Cash flow statements
-- all: All statement types combined
-
-Period options:
-- annual: Annual statements
-- quarterly: Quarterly statements
-- ttm: Trailing twelve months
-
-This will return detailed financial statement data.`
-      }
-    ]
-  };
-});
+// === FRESH RESOURCE TEMPLATES IMPLEMENTATION ===
+// Will be implemented below with the other resource handlers
 
 /**
  * Main function to initialize and run the MCP server
